@@ -1,5 +1,6 @@
 # Inserts the MoTA executor row. The plugin ships as an installable bundle
-# (npm or git); it has no runtime npm dependencies.
+# (npm or git); it has no runtime npm dependencies. Every Agent lives in its
+# own credentials record, so this config only holds limits and pricing.
 - insert:
     - id: mota-executor
       name: 'dsh-mota-executor'
@@ -9,3 +10,7 @@
         selfCheckTimeoutSeconds: 60
         allowInsecureLoopback: false
         autoStart: true
+        # Cost estimates for the usage tab: price per 1M tokens.
+        priceInputPerMTok: 0
+        priceOutputPerMTok: 0
+        currency: CNY

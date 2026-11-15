@@ -1,7 +1,7 @@
 {
   "name": "dsh-mota-executor",
-  "version": "0.1.0",
-  "description": "Run this DeepSeek Harness agent as a bound Pull worker (executor) for MoTA Creator.",
+  "version": "0.2.0",
+  "description": "Multi-Agent MoTA Creator connector for DeepSeek Harness: several bound Pull Agents, per-Agent queue/concurrency, usage and cost stats, logs.",
   "type": "module",
   "exports": {
     ".": "./index.js",

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { after, before, test } from 'node:test';
 import { apply } from '../index.js';
-import { CONNECTION_KEY } from '../lib/connection.js';
+import { AGENT_KEY_PREFIX } from '../lib/agents.js';
 
 const TOKEN = 'mpk_testtoken123';
 const QUEUE_PATH = '/publics/bound/queue/q-plugin';
@@ -13,6 +13,7 @@ let pluginServer;
 let pluginBase;
 let store;
 let routes;
+let disposers = [];
 
 function json(res, status, body) {
   res.writeHead(status, { 'content-type': 'application/json' });
@@ -58,6 +59,9 @@ before(async () => {
     async deleteRecord(key) {
       store.delete(key);
     },
+    async listRecords() {
+      return [...store.keys()].map((key) => ({ key }));
+    },
   };
   const webServer = {
     register(route) {
@@ -70,7 +74,8 @@ before(async () => {
     get: (name) => services[name],
     on: () => () => {},
     effect: (fn) => {
-      fn();
+      const dispose = fn();
+      if (typeof dispose === 'function') disposers.push(dispose);
       return () => {};
     },
   };
@@ -89,18 +94,25 @@ before(async () => {
   pluginBase = `http://127.0.0.1:${pluginServer.address().port}`;
 });
 
-after(() => {
+after(async () => {
+  for (const dispose of disposers ?? []) {
+    try {
+      await dispose();
+    } catch {
+      // best effort: tests still close the servers below
+    }
+  }
   pluginServer.closeAllConnections?.();
   queueServer.closeAllConnections?.();
   pluginServer.close();
   queueServer.close();
 });
 
-async function api(path, body) {
-  const res = await fetch(`${pluginBase}${path}`, body === undefined ? {} : {
-    method: 'POST',
+async function api(path, body, method) {
+  const res = await fetch(`${pluginBase}${path}`, body === undefined && method === undefined ? {} : {
+    method: method ?? 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(body),
+    body: body === undefined ? undefined : JSON.stringify(body),
   });
   const data = await res.json();
   return { status: res.status, data };
@@ -118,7 +130,7 @@ test('serves the setup page on /mota', async () => {
   const res = await fetch(`${pluginBase}/mota`);
   assert.equal(res.status, 200);
   const html = await res.text();
-  assert.match(html, /MoTA 连接/);
+  assert.match(html, /MoTA 5 Agent/);
   assert.match(html, /保存并连接/);
 });
 
@@ -127,6 +139,7 @@ test('reports an empty state before any connection exists', async () => {
   assert.equal(status, 200);
   assert.equal(data.connection, null);
   assert.equal(data.status.phase, 'stopped');
+  assert.deepEqual(data.agents, []);
 });
 
 test('parses a pasted binding receipt into connect fields', async () => {
@@ -160,14 +173,17 @@ test('connects against the queue, stores one credentials record, and goes online
   assert.equal(data.connection.tokenMasked.includes(TOKEN), false);
   assert.equal(data.status.phase, 'online');
 
-  const record = store.get(CONNECTION_KEY);
+  const agentKeys = [...store.keys()].filter((key) => key.startsWith(AGENT_KEY_PREFIX));
+  assert.equal(agentKeys.length, 1);
+  const record = store.get(agentKeys[0]);
   assert.equal(record.kind, 'grant');
   assert.equal(record.payload.token, TOKEN);
   assert.equal(record.payload.positionType, 'FUNDAMENTAL_ANALYST');
 
   const state = await api('/mota/api/state');
-  assert.equal(state.data.status.phase, 'online');
-  assert.equal(state.data.status.queueDepth, 0);
+  assert.equal(state.data.agents.length, 1);
+  assert.equal(state.data.agents[0].status.phase, 'online');
+  assert.equal(state.data.agents[0].status.queueDepth, 0);
 });
 
 test('test-connection performs a heartbeat without restarting the worker', async () => {
@@ -183,7 +199,48 @@ test('test-connection performs a heartbeat without restarting the worker', async
 test('disconnect clears the credentials record and stops the worker', async () => {
   const { data } = await api('/mota/api/disconnect', {});
   assert.equal(data.connection, null);
-  assert.equal(store.has(CONNECTION_KEY), false);
+  assert.equal([...store.keys()].filter((key) => key.startsWith(AGENT_KEY_PREFIX)).length, 0);
   const state = await api('/mota/api/state');
   assert.equal(state.data.status.phase, 'stopped');
+  assert.deepEqual(state.data.agents, []);
+});
+
+test('creates, lists, updates, logs and deletes multiple Agents', async () => {
+  const base = {
+    token: TOKEN,
+    queueUrl: `${queueBase}${QUEUE_PATH}`,
+    agentCode: 'agent-a',
+    positionType: 'FUNDAMENTAL_ANALYST',
+    concurrency: 2,
+  };
+  const first = await api('/mota/api/agents', base);
+  assert.equal(first.status, 200);
+  assert.equal(first.data.agent.name, 'agent-a');
+  assert.equal(first.data.agent.concurrency, 2);
+  assert.equal(first.data.agent.tokenMasked.includes(TOKEN), false);
+
+  const second = await api('/mota/api/agents', { ...base, agentCode: 'agent-b', name: '研究二号', positionType: 'STRATEGIST' });
+  assert.equal(second.status, 200);
+  assert.equal(second.data.agent.name, '研究二号');
+
+  const state = await api('/mota/api/state');
+  assert.equal(state.data.agents.length, 2);
+  const ids = state.data.agents.map((agent) => agent.id);
+  assert.equal(new Set(ids).size, 2);
+
+  const patched = await api(`/mota/api/agents/${first.data.agent.id}`, { concurrency: 3, name: '基本面一号' }, 'PATCH');
+  assert.equal(patched.status, 200);
+  assert.equal(patched.data.agent.concurrency, 3);
+  assert.equal(patched.data.agent.name, '基本面一号');
+
+  const logs = await api(`/mota/api/logs?agentId=${first.data.agent.id}&level=all`);
+  assert.equal(logs.status, 200);
+  assert.ok(Array.isArray(logs.data.logs));
+  assert.ok(logs.data.logs.length >= 1);
+  assert.ok(logs.data.logs.every((entry) => entry.agentId === first.data.agent.id));
+
+  const removed = await api(`/mota/api/agents/${second.data.agent.id}`, undefined, 'DELETE');
+  assert.equal(removed.status, 200);
+  const afterDelete = await api('/mota/api/state');
+  assert.equal(afterDelete.data.agents.length, 1);
 });

@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "MoTA 执行器",
+    "title": "MoTA 5 Agent",
     "description": "把本机 Harness Agent 作为 MoTA Creator 的绑定式 Pull Worker 常驻运行：心跳、领取任务、执行，并带着真实 Token 用量回传通过校验的结果。",
     "detail": "README.md"
   }
