@@ -1,0 +1,8 @@
+# Local smoke overlay: references the workspace bundle by absolute path so the
+# loader can import it without installing into a profile.
+- insert:
+    - id: mota
+      name: ./index.js
+      config:
+        language: zh
+        allowInsecureLoopback: true

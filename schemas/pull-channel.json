@@ -1,0 +1,538 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mota.ai/schema/bound/pull-channel.json",
+  "title": "MoTA Bound Channel Schema · PULL（创作者 worker 轮询 MoTA 队列）",
+  "description": "Bound 模式 pull 通道的请求 / 响应契约。按 transport 而非按岗位切分——岗位载荷 payload_result 与 Hosted 同岗位逐字段相同，见 x-mota.payloadResultRef。本文件自包含，不跨文件 $ref。",
+  "x-mota": {
+    "mode": "BOUND",
+    "transport": "pull",
+    "status": "IMPLEMENTED",
+    "platformVersion": "v2.1",
+    "revision": "2026-09-23",
+    "payloadResultRef": "岗位载荷 payload_result 的结构与 Hosted 同岗位完全一致，见同目录各岗位 schema（如 technical-analyst.json）的 $defs/payloadResult；本文件只约束信封外壳，不重复各岗结构。本文件自包含，不跨文件 $ref。",
+    "naming": "下发任务信封为 camelCase；回传业务信封三键为 snake_case（payload_result / payload_info / contract_version），payload_result 内部 snake_case（evidenceRefs 例外）；回传顶层 usage 及其字段为 camelCase。runId 不进 body，走 X-MoTA-Run-ID 头。",
+    "dataBoundary": "自助 Bound 通道信封的数据边界（当前实现）：runtimeContext 按白名单转发，只含 isFinal、accountId、brokerType、brokerAccountId、account、positions、todayOrders、observedAt、accountStateVersion 中投资者侧实际提供的键，可能包含投资者的账户、持仓与当日订单快照；templateInputData / taskBrief / globalParameters / upstream / runtimeMetadata 整块转发，只按字段名删除传输凭据（authorization、access_token、password 等）。平台不向信封注入自由文本。未知键请忽略而不是拒收。",
+    "queueAddress": "队列地址 queueUrl 由 /creator/bound/bind-pull、/creator/bound/channel 回显，请直接使用、不要从文档里抄。",
+    "authModel": "四个 worker 端点（heartbeat / claim / renew / complete）一律用查询参数 ?token={mpk_*}（tokenType=BOUND_PULL），不是 Authorization 头。令牌是身份，路径里的 agentCode 只是寻址，两者必须指向同一个 Agent，否则 403。complete 不做 HMAC 签名。",
+    "limits": {
+      "longPollSeconds": "claim 长轮询最多挂 30 秒，无任务返回 204；HTTP 读超时不得小于 35 秒。",
+      "leaseSeconds": "租约 300 秒，长任务需 renew。",
+      "maxClaims": "同一任务连续 3 次被认领都未回传即判死，不再重派。",
+      "queueTtlSeconds": "入队后 7200 秒无人认领判 BOUND_QUEUE_EXPIRED。",
+      "offlineAfterSeconds": "连续 900 秒既无有效心跳也无结果回传判离线：只影响通道状态展示，派发不看心跳，任务照样入队、照样能被认领；无人认领的任务按 queueTtlSeconds 判死。"
+    }
+  },
+  "$defs": {
+    "auth": {
+      "title": "① 通道鉴权（所有 pull 端点）",
+      "description": "查询参数 ?token={mpk_*}，不是 Authorization 头——四个 worker 端点一律如此。校验顺序：令牌存在 → 未吊销 → 未过期 → 类型为 BOUND_PULL → 令牌 owner 与该 Agent 当前 owner 一致 → 路径里的 agentCode 等于令牌绑定的 agentCode。",
+      "type": "object",
+      "properties": {
+        "token": {
+          "type": "string",
+          "pattern": "^mpk_",
+          "description": "pull 队列令牌明文（mpk_ + 64 位十六进制），作为 URL 查询参数传递。首次绑定 pull 通道或显式轮换时显示一次，平台只存哈希、无法补发。有效期两年，到期前 30 / 7 / 1 天站内信 + 邮件提醒，过期后 401 AGENT_TOKEN_EXPIRED。与 push 通道密钥 mbt_* 不可混用。"
+        }
+      },
+      "required": [
+        "token"
+      ]
+    },
+    "heartbeatResponse": {
+      "title": "② POST /publics/bound/queue/{agentCode}/heartbeat 响应",
+      "description": "worker 上线心跳：返回队列积压与下一轮探活要求。心跳是必需的——连续 15 分钟既无有效心跳也无结果回传即判离线：通道状态显示离线，但派发不看心跳，任务照样入队、照样能被认领，无人认领满 7200 秒判 BOUND_QUEUE_EXPIRED。请为心跳起独立定时器，不要挂在 claim 循环里（claim 会阻塞在长轮询上）。请求 body 可空；回执要求自检时，下一次心跳 body 带 {\"selfCheck\":{\"pass\":bool,\"latencyMs\":int,\"error\":string|null}}。",
+      "type": "object",
+      "properties": {
+        "queueDepth": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "当前队列积压条数。"
+        },
+        "selfCheckRequired": {
+          "type": "boolean",
+          "description": "下一次心跳是否需要带最小往返自检结果。**由平台算、worker 照做**：只有平台知道这条通道最近 15 分钟有没有跑过真实业务（跑过就免掉本轮自检，自检的算力是创作者自付的）。worker 自己掐表定时自检的话，这笔省下来的钱就省不掉。"
+        },
+        "heartbeatIntervalSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "下一次心跳的间隔秒数（默认 60）。**用回执给的值，不要在脚本里写死**——节奏由平台单点调整。"
+        },
+        "selfCheckIntervalSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "自检周期秒数（默认 900），供 worker 排程参考；是否真的要做仍以 selfCheckRequired 为准。"
+        }
+      },
+      "required": [
+        "queueDepth",
+        "selfCheckRequired",
+        "heartbeatIntervalSeconds",
+        "selfCheckIntervalSeconds"
+      ]
+    },
+    "completeResponse": {
+      "title": "⑥ POST /publics/bound/queue/{agentCode}/complete 响应 —— 两层结论",
+      "description": "HTTP 状态码与 code 说的是「传输受理了没有」，accepted 说的是「产出可用不可用」，两层必须分开读：回传一份坏信封（含 usage 缺失或非法）时传输照样受理（200 / OK），但 accepted=false。renew 与鉴权失败的回执与 run 产出无关，accepted / runStatus / runMsg 整组不出现。accepted=false 时可能附带 diagnostic 对象，仅用于日志与排障展示，不要据它分支。",
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "description": "传输层业务码。**回传被受理时恒为 OK，与产出是否可用无关**——不要拿它判断结果是否被采纳。"
+        },
+        "message": {
+          "type": "string",
+          "description": "本次传输的受理结论，人读。不要解析它做分支判断。"
+        },
+        "accepted": {
+          "type": "boolean",
+          "description": "本次产出是否被采纳为 run 的成功结果。**worker 判断「这条到底算不算数」只看这一个字段**。幂等重传时回放既有终态的结论，不会因重传而翻转。"
+        },
+        "runStatus": {
+          "type": "string",
+          "description": "run 当前终态码：成功为 SUCCEEDED，失败为具体的 AgentRunFailureCode（ENVELOPE_SHAPE_INVALID / OUTPUT_NOT_JSON / EVIDENCE_MISSING / PAYLOAD_SCHEMA_INVALID / RUNTIME_USAGE_MISSING / RUNTIME_USAGE_INVALID / UPSTREAM_RATE_LIMITED / UPSTREAM_UNAVAILABLE / UPSTREAM_AUTH_FAILED / UPSTREAM_MODEL_UNAVAILABLE / UPSTREAM_BUDGET_EXHAUSTED / UPSTREAM_CONCURRENCY_EXHAUSTED / ENTITLEMENT_UNAVAILABLE / GUARDRAIL_RUN_TIMEOUT / GUARDRAIL_LLM_KEY_MISSING / RUNTIME_EXEC_FAILED / RUNTIME_INTERRUPTED / UNCLASSIFIED，以及传输层判死码 BOUND_QUEUE_EXPIRED / BOUND_LEASE_EXHAUSTED / BOUND_CLAIM_EXHAUSTED / BOUND_PUSH_DEAD / BOUND_PUSH_TIMEOUT / BOUND_CALLBACK_TIMEOUT / BOUND_PUSHING_STUCK / BOUND_VENDOR_FAILED / BOUND_DELIVERY_STOPPED 与平台处置 PLATFORM_CANCELLED）。比 AgentRunStatus 细一档，worker 据它分流：契约违规该修代码、上游限流该重跑。**取值会随平台增补，worker 必须容忍没见过的值**——按未知处置（等同 UNCLASSIFIED：不归责、可稍后重跑），不要写成穷尽分支后走 else 崩掉。UNCLASSIFIED 表示平台自己也还没判定出原因，不是你的产出问题。",
+          "examples": [
+            "SUCCEEDED",
+            "ENVELOPE_SHAPE_INVALID",
+            "UPSTREAM_RATE_LIMITED"
+          ]
+        },
+        "runMsg": {
+          "type": "string",
+          "description": "runStatus 的人读解释，含「你该做什么」；用量被拒时指出字段与收到的值。不要解析它做分支。"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ]
+    },
+    "claimResponse": {
+      "title": "③ POST /publics/bound/queue/{agentCode}/claim 响应 —— 下发信封 mota-agent-bound-task v1",
+      "description": "认领任务（long-poll）：服务端原子取一条任务并发放可见性租约。无任务时最多挂起 30 秒后返回 HTTP 204、无 body——worker 见 204 应立刻重新发起下一次 claim。命名法为 camelCase。",
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "type": "string",
+          "const": "1.0",
+          "description": "任务信封版本，固定 \"1.0\"。"
+        },
+        "runId": {
+          "type": "string",
+          "examples": [
+            "RUN-xxxx"
+          ],
+          "description": "回传时经 X-MoTA-Run-ID 头原样带回。"
+        },
+        "agentCode": {
+          "type": "string",
+          "examples": [
+            "ext-marcus"
+          ]
+        },
+        "templateId": {
+          "type": "string",
+          "examples": [
+            "single_security_technical_diagnosis"
+          ]
+        },
+        "positionType": {
+          "type": "string",
+          "description": "本次派发所用的岗位码（平台登记的岗位）。同一 worker 接多个岗位的 Agent 时据此分流。平台未登记岗位的历史制品不下发本字段。",
+          "examples": [
+            "TECHNICAL_ANALYST",
+            "FUNDAMENTAL_ANALYST"
+          ]
+        },
+        "templateInputData": {
+          "type": "array",
+          "description": "模板入参（与 Hosted 同名字段）。恒下发、恒为数组，常为 []（上游缺失、为 null 或不是数组时平台归一为 []）。当前实现整块转发，只按字段名删除传输凭据：参数名本身是凭据的整项删除，各项内部嵌套的凭据键也递归删除。",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "value": {}
+            },
+            "required": [
+              "name",
+              "value"
+            ]
+          }
+        },
+        "taskBrief": {
+          "type": "object",
+          "properties": {
+            "expectedOutputFormat": {
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              ],
+              "description": "期望的输出形态。两种形态都会真实下发：一句人读说明（字符串），或该岗位的机器可读 JSON Schema（对象）。按本 schema 校验任务信封时两种都要接受，否则会把正式任务整条拒收。"
+            }
+          },
+          "additionalProperties": true,
+          "description": "任务简报。除 expectedOutputFormat 外可能下发其它子字段，请容忍未知键。"
+        },
+        "globalParameters": {
+          "type": "object",
+          "description": "全局参数，只含平台允许下发的键；全部被过滤时本字段不出现。可能出现未在下方列出的键，请忽略而不是拒收。",
+          "properties": {
+            "language": {
+              "type": "string",
+              "description": "输出语言，纯 PARAM。缺了 Bound Agent 不知道输出中文还是英文（Hosted 侧输出语言就随它）。",
+              "examples": [
+                "en-US",
+                "zh-CN"
+              ]
+            },
+            "targetMarkets": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Team 配置的目标市场，不含订阅者私有信息。",
+              "examples": [
+                [
+                  "US",
+                  "HK"
+                ]
+              ]
+            },
+            "symbolPool": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "本次运行的标的池。输出里出现的所有 symbol / ticker 必须逐字取自这里（universeMode=SEED 时可在 targetMarkets 范围内提出池外标的）。",
+              "examples": [
+                [
+                  "AAPL.US",
+                  "MSFT.US"
+                ]
+              ]
+            },
+            "universeMode": {
+              "type": "string",
+              "enum": [
+                "RESTRICTED",
+                "SEED"
+              ],
+              "description": "投资范围模式。RESTRICTED=只分析与交易 symbolPool 内的标的；SEED=池子只是起点，Agent 可在 targetMarkets 允许的市场内发现池外机会。与 symbolPool 同批入白名单：只发池子不发模式，Agent 无从判断池外是否可提，等于把 SEED 变成不可实现。缺省按 RESTRICTED 处理。"
+            }
+          },
+          "additionalProperties": true,
+          "x-mota-excluded": {
+            "riskLevel / maxPositionSizeUsd / maxDrawdownThreshold / stopLossThresholdPct / maxInvestmentTargetsUsd": "订阅者财务约束，不会下发到 Bound 通道"
+          }
+        },
+        "upstream": {
+          "type": "object",
+          "description": "上游链路：以本节点为汇点的执行 DAG（self / nodes / edges）。出域时只剔除传输凭据，不改变任务语义。无上游时本字段不出现。",
+          "properties": {
+            "self": {
+              "type": "object",
+              "description": "本节点在编排图中的键，只有 positionKey；本节点岗位见顶层 positionType，isFinal 见 runtimeContext。",
+              "properties": {
+                "positionKey": {
+                  "type": "string"
+                }
+              }
+            },
+            "nodes": {
+              "type": "array",
+              "description": "全部祖先节点（传递闭包），不含本节点。祖先收到的 globalParameters 与 runtimeContext 与本信封顶层那份逐字相同，故不在此重复；把顶层那两块的 isFinal 换成该节点自己的，即可还原它当时收到的完整信封。positionKey 不唯一——同一槽位可能承载多个 Agent，定位具体节点实例请用 agentInstanceId，不要按 positionKey 或 positionType 去重。",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "positionKey": {
+                    "type": "string"
+                  },
+                  "positionType": {
+                    "type": "string",
+                    "description": "该祖先节点的岗位枚举名。"
+                  },
+                  "agentInstanceId": {
+                    "type": "string"
+                  },
+                  "isFinal": {
+                    "type": [
+                      "boolean",
+                      "null"
+                    ],
+                    "description": "该节点是否产出最终订单信号；区分「研究信号」与「最终订单」。"
+                  },
+                  "taskBrief": {
+                    "type": [
+                      "object",
+                      "null"
+                    ],
+                    "description": "该节点当时收到的任务简报，完整不裁。可据此判断上游「没提某标的」是不认同还是根本没被问到。"
+                  },
+                  "output": {
+                    "type": [
+                      "object",
+                      "null"
+                    ],
+                    "description": "该节点最终被采纳的产出，结构随其岗位而定。"
+                  }
+                },
+                "required": [
+                  "agentInstanceId"
+                ]
+              }
+            },
+            "edges": {
+              "type": "array",
+              "description": "祖先子图的边，端点用 positionKey；「哪些是直接上游」由它推出，不再单列数组。用 positionKey 而非 agentInstanceId：拓扑是编排事实，重试产生新实例时不应导致边变化。",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "from": {
+                    "type": "string"
+                  },
+                  "to": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "runtimeContext": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "运行期上下文，按白名单转发：只含 isFinal、accountId、brokerType、brokerAccountId、account、positions、todayOrders、observedAt、accountStateVersion 中投资者侧实际提供的键（可能是投资者的账户、持仓与当日订单快照），一个都没有时整个字段不下发。白名单日后可能增补，请容忍未列出的键。"
+        },
+        "runtimeMetadata": {
+          "type": "object",
+          "description": "调用方自有的运行关联键值；键为 1~64 位稳定标识符，值为不超过 256 位的字符串。Creator 只保存并透传，不解释具体业务语义；最多 16 项，不得放入凭据、账户事实或业务载荷。",
+          "additionalProperties": true
+        },
+        "leaseExpireAt": {
+          "type": "integer",
+          "description": "可见性租约到期时刻（epoch millis，当前租约 300 秒）。到期未 renew 则任务被收回重派（at-least-once）。"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "runId",
+        "agentCode",
+        "templateInputData",
+        "leaseExpireAt"
+      ],
+      "additionalProperties": false
+    },
+    "renewRequest": {
+      "title": "④ POST /publics/bound/queue/{agentCode}/renew 请求",
+      "description": "续租：延长租约，长任务防被收回。本端点没有请求体——runId 走 X-MoTA-Run-ID 头，其余在查询参数。",
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false,
+      "x-mota-headers": {
+        "X-MoTA-Run-ID": "必需；缺失返 400 BOUND_RUN_ID_MISSING。"
+      },
+      "x-mota-query": {
+        "token": "必需；pull 队列令牌 mpk_*，见 $defs/auth。",
+        "workerId": "认领这条任务时带了就必须带，且值逐字一致，否则 409 BOUND_CLAIM_CONFLICT。不带 workerId 认领的，续租也必须同样不带。"
+      }
+    },
+    "completeRequest": {
+      "title": "⑤ POST /publics/bound/queue/{agentCode}/complete 请求 —— 回传信封 mota-agent-payload v1",
+      "description": "run 标识走 HTTP 头 X-MoTA-Run-ID（不进 body）。Body = 三个业务键 payload_result / payload_info / contract_version（与 Hosted 输出相同）+ 必填顶层 usage；除这四个键外不得有其它顶层键。幂等：同一 run 重复回传返回同一结论、只扣一次额度。平台先按 usage 规则判用量，再剥掉 usage 校验三键业务信封。Bound（push 与 pull）每次成功执行都必须在结果信封顶层回传 usage，且 usage.totalTokens 必须是正整数（数值为整数且 ≥ 1，1.0 视同 1；0、负数、1.5 等非整数、字符串、布尔、null 一律非法）。其余字段选填、给了才校验（给 null 视同未给），不做合计校验。Push 同步响应、Push 异步回调、Pull complete 三条路径同一位置、同一名称、同一规则。",
+      "type": "object",
+      "properties": {
+        "payload_result": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "description": "各岗位 output_schema 结构，与 Hosted 同岗位一致。失败路径也要给该岗位的保守缺省结构。"
+        },
+        "payload_info": {
+          "type": "string",
+          "description": "人读 markdown 摘要，语言随 globalParameters.language。"
+        },
+        "contract_version": {
+          "type": "string",
+          "const": "V2",
+          "description": "本次输出遵循的岗位契约版本，固定 \"V2\"。不是你的制品版本（如 v2.1.0），不要填成后者。"
+        },
+        "usage": {
+          "$ref": "#/$defs/boundRunUsage",
+          "description": "必填。本次运行的最终 Token 用量，规则见 $defs/boundRunUsage。"
+        }
+      },
+      "required": [
+        "payload_result",
+        "payload_info",
+        "contract_version",
+        "usage"
+      ],
+      "additionalProperties": false,
+      "x-mota-headers": {
+        "X-MoTA-Run-ID": "必需。原样带回 claim 下发的 runId，服务端据此定位 run 并做归属校验。",
+        "Content-Type": "application/json"
+      },
+      "x-mota-query": {
+        "token": "必需。pull 队列令牌 mpk_*（BOUND_PULL），见 $defs/auth。complete 不做 HMAC 签名。"
+      },
+      "x-mota-usage": "缺 usage 或缺 usage.totalTokens → runStatus=RUNTIME_USAGE_MISSING（runMsg 指出缺哪个字段）；值非法 → RUNTIME_USAGE_INVALID（runMsg 说明要求并原样给出收到的值）。两者都是 accepted=false、本次运行当场判失败（终态）；同一 runId 重传只回放这次失败，修好 worker / 服务后发起新的运行（新 runId）。 生效（kit 2.1.0 / 平台 v2.1）：北京时间 2026-09-03 00:00 及之后绑定的 push / pull 通道，每次成功执行（订阅者运行、自测、连通测试、评测一视同仁）都必须带合法 usage，否则本次运行判失败。兼容期：此前绑定的存量通道缺失或非法不判失败，但本次运行不计量、不扣用户额度，请尽快补齐；兼容期截止日期另行通知。本 schema 与自检工具一律按必填描述与校验。"
+    },
+    "boundRunUsage": {
+      "title": "最终 Token 用量 usage（Bound 回传必填）",
+      "description": "Bound（push 与 pull）每次成功执行都必须在结果信封顶层回传 usage，且 usage.totalTokens 必须是正整数（数值为整数且 ≥ 1，1.0 视同 1；0、负数、1.5 等非整数、字符串、布尔、null 一律非法）。其余字段选填、给了才校验（给 null 视同未给），不做合计校验。Push 同步响应、Push 异步回调、Pull complete 三条路径同一位置、同一名称、同一规则。 totalTokens = 本次执行实际消耗、用于扣减用户额度的总量，按模型供应商返回的总量原样填写；若供应商的总量已包含推理 Token，就不要再把 reasoningTokens 另加一次。promptTokens / completionTokens / cachedInputTokens / reasoningTokens 等明细仅作说明，不参与扣减、不做合计校验。 字段名一律 camelCase（totalTokens，不是 total_tokens）；未定义的键平台忽略。回传的 totalTokens 直接决定订阅用户额度扣多少：先扣订阅内含额度，用尽后扣用户已购补充包；同一次执行重复回传只扣一次。Bound 的模型与服务器成本由创作者自己承担，平台不向 Bound 创作者收模型费，但这不等于无需上报用量——少报不会省钱，只会让账目失真。格式校验通过或连通测试成功只说明字段有效、通道可达，不代表平台核实了真实消耗。拿不到真实用量时请补计量来源，不允许默认填 1、按字符数估算或拿示例值充当真实用量。",
+      "type": "object",
+      "properties": {
+        "totalTokens": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "必填。本次执行实际消耗、用于扣减用户额度的总量，按模型供应商返回的总量原样填写（供应商总量已含推理 Token 时不要再加 reasoningTokens）。数值为整数且 ≥ 1（1.0 视同 1）；0、负数、1.5 等非整数、字符串（如 \"100\"）、布尔、null 判 RUNTIME_USAGE_INVALID；缺失判 RUNTIME_USAGE_MISSING。"
+        },
+        "promptTokens": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "description": "选填，仅作说明。输入 Token 数，给了必须是非负整数；null 视同未给。不参与扣减与合计校验。"
+        },
+        "completionTokens": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "description": "选填，仅作说明。输出 Token 数，给了必须是非负整数；null 视同未给。不参与扣减与合计校验。"
+        },
+        "cachedInputTokens": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "description": "选填，仅作说明。命中缓存的输入 Token 数，给了必须是非负整数；null 视同未给；与 promptTokens 都给时不得大于 promptTokens。"
+        },
+        "reasoningTokens": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "description": "选填，仅作说明。推理 Token 数，给了必须是非负整数；null 视同未给；可以大于 completionTokens。不参与扣减——若供应商总量已含推理 Token，不要再加进 totalTokens。"
+        },
+        "invocationCount": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1,
+          "description": "选填。本次运行内的模型调用次数，给了必须是 ≥ 1 的整数；null 视同未给。"
+        },
+        "schemaVersion": {
+          "anyOf": [
+            {
+              "const": "1.0"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "选填。给了必须是字符串 \"1.0\"；null 视同未给。"
+        },
+        "status": {
+          "anyOf": [
+            {
+              "const": "FINAL"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "选填。给了必须是 \"FINAL\"；null 视同未给。"
+        },
+        "estimated": {
+          "anyOf": [
+            {
+              "const": false
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "选填。给了必须是 false（估算值不能作为最终用量）；null 视同未给。"
+        }
+      },
+      "required": [
+        "totalTokens"
+      ]
+    },
+    "errorCodes": {
+      "title": "⑥ 通道错误码（HTTP 状态）",
+      "type": "object",
+      "properties": {
+        "BOUND_CHANNEL_OFFLINE": {
+          "const": 409,
+          "description": "通道形态或连通性问题：heartbeat / claim —— 通道当前形态不是 pull；renew / complete —— 这条在途任务派发时的形态不是 pull（在途任务按派发时的形态回传）。与权限问题 BOUND_QUEUE_FORBIDDEN(403) 区分处置。"
+        },
+        "BOUND_QUEUE_FORBIDDEN": {
+          "const": 403,
+          "description": "token 有效但无权访问该队列——路径里的 agentCode 与 token 绑定的 agentCode 不是同一个。worker 侧的处置是核对 queueUrl 与密钥是否来自同一个 Agent，通道本身没有问题。"
+        },
+        "AGENT_TOKEN_INVALID": {
+          "const": 401,
+          "description": "令牌无效：查不到对应记录（含把 push 的 mbt_* 传给 pull 队列），或传了空字符串。"
+        },
+        "AGENT_TOKEN_REVOKED": {
+          "const": 401,
+          "description": "token 已吊销——多半是创作者在中心轮换过（新令牌签发即吊销同类型旧令牌）。"
+        },
+        "AGENT_TOKEN_EXPIRED": {
+          "const": 401,
+          "description": "令牌已过期（有效期两年，到期前 30 / 7 / 1 天有站内信 + 邮件提醒）。回中心签发候选凭证并切换后更新 worker 配置。"
+        },
+        "AGENT_TOKEN_TYPE_MISMATCH": {
+          "const": 403,
+          "description": "令牌本身有效，但类型不是 BOUND_PULL（例如把 push 回调令牌 mpk_*（BOUND_PUSH）或 Hosted 发布令牌传了进来）。"
+        },
+        "AGENT_TOKEN_FORBIDDEN": {
+          "const": 403,
+          "description": "令牌绑定的 owner 与该 Agent 当前 owner 不符（Agent 已易主），令牌当场失效。"
+        },
+        "BOUND_RUN_ID_MISSING": {
+          "const": 400,
+          "description": "renew / complete 缺 X-MoTA-Run-ID 头。"
+        },
+        "BOUND_RUN_NOT_FOUND": {
+          "const": 404,
+          "description": "runId 不存在，或该 delivery 不属于本令牌绑定的 agentCode（归属校验）。"
+        },
+        "BOUND_CLAIM_CONFLICT": {
+          "const": 409,
+          "description": "续租失败：租约已过期被别的 worker 抢回，**或续租带的 workerId 与认领时不一致**（服务端按 claimed_by 匹配）。worker 应立即放弃该任务并继续 claim。"
+        },
+        "BOUND_SUBSCRIBER_FIELD_BLOCKED": {
+          "const": 422,
+          "description": "入参含订阅者级字段，被边界闸拒"
+        },
+        "BOUND_FREETEXT_BLOCKED": {
+          "const": 422,
+          "description": "自由文本 content 仅 hosted 开放"
+        },
+        "BOUND_BINDING_REQUIRED": {
+          "const": 422,
+          "description": "提审前须连通测试通过"
+        },
+        "BOUND_BIND_NOT_ALLOWED": {
+          "const": 422,
+          "description": "交易岗禁 bound（创建/切换）"
+        }
+      }
+    }
+  }
+}

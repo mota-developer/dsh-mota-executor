@@ -1,0 +1,1090 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mota.ai/schema/hosted/risk-manager.json",
+  "title": "MoTA Hosted Agent Schema · RISK_MANAGER",
+  "description": "Hosted 模式下「风控经理」岗位的请求 / 响应契约。本文件自包含，不跨文件 $ref。",
+  "x-mota": {
+    "mode": "HOSTED",
+    "positionType": "RISK_MANAGER",
+    "profiles": [
+      "mota-risk-manager",
+      "ext-risk-manager"
+    ],
+    "tqxAgentId": "tqx_risk_manager_agent_v1",
+    "tqxTemplateAlignment": "risk_manager_001",
+    "envelopes": {
+      "inbound": "#/$defs/tqxAgentInvokeRequest",
+      "task": "#/$defs/motaAgentTaskV1",
+      "agentOutput": "#/$defs/motaAgentPayloadV1",
+      "result": "#/$defs/motaAgentResultResponse",
+      "sseEventData": "#/$defs/motaSseEventData"
+    },
+    "sources": [
+      "doc/97 §4（AgentInvokeRequest）· §5.1/§5.2（SSE 事件 / AgentResultResponse）· §5.3（终态判定）",
+      "doc/15 §1.6（各岗位输出契约 V2 canonical）",
+      "平台 profile {mota,ext}-risk-manager/SOUL.md（输入契约 / payload_result 载荷契约 / 输出格式）",
+      "creator-agent-web/src/main/java/com/mota/creator/tqxcompat/hosted/HostedTaskEnvelopeMapper.java（snake→camel 全量透传 + schemaVersion 补齐）",
+      "creator-agent-web/src/main/java/com/mota/creator/tqxcompat/hosted/HostedTqxExecutor.java（toAgentResult / writeTerminal）",
+      "creator-agent-web/src/main/java/com/mota/creator/tqxcompat/wire/TqxWire.java（外壳与 status/state 常量）"
+    ],
+    "conventions": {
+      "required": "收录 doc/15 §1.6 V2 契约的必填集；平台侧硬校验（落单契约 / GRD-6 证据字段）更严处一并纳入 required 并在 description 说明。",
+      "enum": "V2《公共字段枚举值》给出完整取值集的字段用 enum，取值一律大写；来源写「等」或范围记法的改用 examples。"
+    },
+    "capturedAt": "2026-07-28",
+    "contractVersion": "V2"
+  },
+  "$defs": {
+    "tqxAgentInvokeRequest": {
+      "title": "① MoTA → creator 入站请求（TQX 兼容 wire，snake_case）",
+      "description": "POST /tqx/api/v1/agent/invoke 的 body。与 TQX AgentInvokeRequest 逐字段同构。头部另需 Authorization: Bearer、X-MoTA-Workflow-ID、X-MoTA-Run-ID、X-TQX-Idempotency-Key（幂等键，落库为 request_id）。",
+      "type": "object",
+      "properties": {
+        "agent_id": {
+          "type": "string",
+          "description": "TQX 目录 agentId。命中 mota.creator.tqx-compat.hosted-agents 映射即走 Hosted，否则转 Bound 上游。"
+        },
+        "template_id": {
+          "type": "string",
+          "description": "目录 templates[].id"
+        },
+        "task_brief": {
+          "type": "object",
+          "properties": {
+            "user_custom_instructions": {
+              "type": "string"
+            },
+            "upstream_requirements": {
+              "type": "string"
+            },
+            "expected_output_format": {
+              "type": "string"
+            },
+            "mota_platform_rules": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "additionalProperties": true
+        },
+        "template_input_data": {
+          "type": "array",
+          "description": "模板输入，按 TQX 目录 required_inputs / allowed_values 约束。本岗位参数见 x-mota-templateParameters。",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "value": {}
+            },
+            "required": [
+              "name",
+              "value"
+            ]
+          }
+        },
+        "upstream": {
+          "type": "object",
+          "description": "上游节点结果。 契约 V3（2026-08-21）：上游改为 upstream{self,nodes,edges} 对象，TQX 侧按 MoTA 协议兼容一版，本 wire 不再保留旧的 upstream_payload 数组。键名沿用本 wire 的 snake_case 命名法。",
+          "properties": {
+            "self": {
+              "type": "object",
+              "description": "本节点自身在编排图中的键。只给 position_key：本节点的岗位与 is_final 在信封既有位置已有，重复即同一事实两处表达。",
+              "properties": {
+                "position_key": {
+                  "type": "string"
+                }
+              }
+            },
+            "nodes": {
+              "type": "array",
+              "description": "全部祖先节点（传递闭包），不含本节点。祖先收到的 global_parameters 与 runtime_context 与本请求顶层那份逐字相同，故不在此重复。position_key 不唯一——同一槽位可能承载多个 Agent，定位实例请用 agent_instance_id。",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "position_key": {
+                    "type": "string"
+                  },
+                  "position_type": {
+                    "type": "string",
+                    "description": "岗位枚举名。旧结构缺这一位，下游只能按产出字段形状猜语义。"
+                  },
+                  "agent_instance_id": {
+                    "type": "string"
+                  },
+                  "is_final": {
+                    "type": [
+                      "boolean",
+                      "null"
+                    ],
+                    "description": "该节点是否产出最终订单信号；区分研究信号与最终订单。"
+                  },
+                  "task_brief": {
+                    "type": [
+                      "object",
+                      "null"
+                    ],
+                    "description": "该节点当时收到的任务简报，完整不裁。"
+                  },
+                  "output": {
+                    "type": [
+                      "object",
+                      "null"
+                    ],
+                    "description": "该节点最终被采纳的产出（旧键名为 payload_result）。"
+                  }
+                }
+              }
+            },
+            "edges": {
+              "type": "array",
+              "description": "祖先子图的边，端点用 position_key；直接上游由它推出。",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "from": {
+                    "type": "string"
+                  },
+                  "to": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "global_parameters": {
+          "type": "object",
+          "description": "Team 配置注入的全局参数。金额 / 阈值在 MoTA 侧为 BigDecimal。",
+          "properties": {
+            "language": {
+              "type": "string",
+              "description": "输出语言；缺省 en-US",
+              "examples": [
+                "en-US",
+                "zh-CN"
+              ]
+            },
+            "target_markets": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "examples": [
+                [
+                  "US",
+                  "HK"
+                ]
+              ]
+            },
+            "symbol_pool": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "risk_level": {
+              "type": "string",
+              "enum": [
+                "low",
+                "medium",
+                "high"
+              ]
+            },
+            "max_position_size_usd": {
+              "type": "number"
+            },
+            "max_drawdown_threshold": {
+              "type": "number"
+            },
+            "stop_loss_threshold_pct": {
+              "type": "number"
+            },
+            "max_investment_targets_usd": {
+              "type": "number"
+            }
+          },
+          "additionalProperties": true
+        },
+        "runtime_context": {
+          "type": "object",
+          "description": "运行时上下文（Map）"
+        },
+        "tools_authorized": {
+          "type": "array",
+          "description": "MCP 授权。mcp = MoTA MCP 网关地址；Hosted 侧 MCP 接线另见 mota.creator.mcp（fail-closed）。",
+          "items": {
+            "type": "object",
+            "properties": {
+              "mcp": {
+                "type": "string"
+              },
+              "authorized_headers": {
+                "type": "object"
+              },
+              "tools": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "description": {
+                      "type": "string"
+                    },
+                    "parameters": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "callback_url": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "agent_id"
+      ],
+      "additionalProperties": true
+    },
+    "motaAgentTaskV1": {
+      "title": "② creator → Hermes 容器任务信封 mota-agent-task v1（camelCase）",
+      "description": "HostedTaskEnvelopeMapper 对 ① 做递归改键（不动值）后补 schemaVersion。因是全量透传，① 的任何字段都会以 camelCase 出现在此，故 additionalProperties 为 true——下列仅列 SOUL.md 明确声明消费的字段。",
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "type": "string",
+          "const": "1.0",
+          "description": "由兼容层补齐（HostedTaskEnvelopeMapper.SCHEMA_VERSION），TQX 请求体不带该字段。"
+        },
+        "templateId": {
+          "type": "string",
+          "description": "岗位模板标识。由 ① 的 template_id 改键而来；SOUL.md 未列，但 Java 侧 AgentTaskEnvelope 已声明，bound 下发信封亦透传。"
+        },
+        "taskBrief": {
+          "type": "object",
+          "properties": {
+            "userCustomInstructions": {
+              "type": "string"
+            },
+            "upstreamRequirements": {
+              "type": "string"
+            },
+            "expectedOutputFormat": {
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              ],
+              "description": "期望的输出形态。**两种形态都会真实下发**：既可能是一句人读说明（字符串），也可能是该岗位的机器可读 JSON Schema（对象）——2026-08-25 生产实测评测任务下发的就是对象形态。此前只声明 string，按本 Schema 严格校验输入的实现会整条拒收。"
+            },
+            "motaPlatformRules": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "SOUL.md 未列，但因 mapper 全量透传而实际存在。"
+            }
+          },
+          "additionalProperties": true
+        },
+        "templateInputData": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "value": {}
+            },
+            "required": [
+              "name",
+              "value"
+            ]
+          },
+          "description": "本岗位模板参数；未给出的用默认值。"
+        },
+        "globalParameters": {
+          "type": "object",
+          "properties": {
+            "language": {
+              "type": "string",
+              "description": "输出语言随它；缺省 en-US"
+            },
+            "targetMarkets": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "symbolPool": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "universeMode": {
+              "type": "string",
+              "enum": [
+                "RESTRICTED",
+                "SEED"
+              ],
+              "description": "投资范围模式。RESTRICTED=只分析与交易 symbolPool 内的标的；SEED=池子只是起点，Agent 可在 targetMarkets 允许的市场内发现池外机会。取值为大写枚举名，由投资者端下发。字段缺省时按 RESTRICTED 处理——缺省不是「未定义」，老信封不带该键的行为与本字段引入前逐字一致。"
+            },
+            "riskLevel": {
+              "type": "string",
+              "enum": [
+                "low",
+                "medium",
+                "high"
+              ]
+            },
+            "maxPositionSizeUsd": {
+              "type": "number"
+            },
+            "maxDrawdownThreshold": {
+              "type": "number"
+            },
+            "stopLossThresholdPct": {
+              "type": "number"
+            },
+            "maxInvestmentTargetsUsd": {
+              "type": "number",
+              "description": "最大投资标的金额（USD）。SOUL.md 未列，但 ① 的 max_investment_targets_usd 会改键透传到此。"
+            }
+          },
+          "additionalProperties": true
+        },
+        "runtimeContext": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "description": "本次 Agent 运行可直接消费的账户事实；isFinal 仍仅由投资组合经理消费。已知账户字段全部具名，只有 runtimeContext 本层允许未知扩展。",
+          "properties": {
+            "isFinal": {
+              "type": [
+                "boolean",
+                "null"
+              ],
+              "default": false,
+              "description": "是否为 final 岗位；缺省 false。只有投资组合经理消费。"
+            },
+            "observedAt": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64",
+              "description": "账户事实的采集时间，Unix 毫秒时间戳。"
+            },
+            "accountStateVersion": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64",
+              "description": "账户事实版本；同一账户后取得的版本应大于或等于此前版本。"
+            },
+            "account": {
+              "type": [
+                "object",
+                "null"
+              ],
+              "description": "当前运行账户的资产摘要；字段语义与交易域 MCP get_account_info 一致。",
+              "properties": {
+                "totalAssets": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "cashBalance": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "netLiquidation": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "currency": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "additionalProperties": false
+            },
+            "positions": {
+              "type": [
+                "array",
+                "null"
+              ],
+              "description": "当前运行账户的持仓；字段语义与交易域 MCP get_portfolio 一致。",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "symbol": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "cnName": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "enName": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "market": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "quantity": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "avgCost": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "marketValue": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "unrealizedPnl": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "currency": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "todayOrders": {
+              "type": [
+                "array",
+                "null"
+              ],
+              "description": "当前运行账户的当日订单；字段语义与交易域 MCP get_today_orders 一致。",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "symbol": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "market": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "direction": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "quantity": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "limitPrice": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "timeInForce": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "algoType": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "executionInstruction": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "brokerType": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "brokerUserId": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "brokerAccountId": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "brokerOrderId": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "orderStatus": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "filledQuantity": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "filledAvgPrice": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "rejectReason": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "createTime": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "format": "int64"
+                  },
+                  "updateTime": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "format": "int64"
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          },
+          "additionalProperties": true
+        },
+        "upstream": {
+          "type": "object",
+          "description": "上游岗位结论，必须消化后纳入判断。",
+          "properties": {
+            "self": {
+              "type": "object",
+              "description": "本节点自身在编排图中的键。只给 positionKey：本节点的岗位与 isFinal 已在信封既有位置给出（BOUND 在顶层 positionType，两侧的 isFinal 都在 runtimeContext），在此重复就是同一事实两处表达。BOUND 侧此前拿不到 positionKey。",
+              "properties": {
+                "positionKey": {
+                  "type": "string"
+                }
+              }
+            },
+            "nodes": {
+              "type": "array",
+              "description": "全部祖先节点（传递闭包），不含本节点。每个节点给出它被问了什么（taskBrief，完整不裁）与答了什么（output）。祖先收到的 globalParameters 与 runtimeContext 与本信封顶层那一份逐字相同，故不在此重复；把顶层那两块的 isFinal 换成该节点自己的，即可还原它当时收到的完整信封。positionKey 不唯一——同一槽位可能承载多个 Agent，定位具体节点实例请用 agentInstanceId，不要按 positionKey 或 positionType 去重。",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "positionKey": {
+                    "type": "string"
+                  },
+                  "positionType": {
+                    "type": "string",
+                    "description": "岗位枚举名。旧结构缺这一位，是下游只能按 payload_result 字段形状猜语义的根因。"
+                  },
+                  "agentInstanceId": {
+                    "type": "string",
+                    "description": "Creator 返回的上游 Agent 实例标识；不得填写调用方自己的执行或尝试记录标识。"
+                  },
+                  "isFinal": {
+                    "type": [
+                      "boolean",
+                      "null"
+                    ],
+                    "description": "该节点是否产出最终订单信号。逐节点不同，区分「研究信号」与「最终订单」。"
+                  },
+                  "taskBrief": {
+                    "type": [
+                      "object",
+                      "null"
+                    ]
+                  },
+                  "output": {
+                    "type": [
+                      "object",
+                      "null"
+                    ]
+                  }
+                }
+              }
+            },
+            "edges": {
+              "type": "array",
+              "description": "祖先子图的边，端点用 positionKey；「哪些是直接上游」由它推出，不再单列数组。用 positionKey 而非 agentInstanceId：拓扑是编排事实，重试产生新实例时不应导致边变化。",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "from": {
+                    "type": "string"
+                  },
+                  "to": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "content": {
+          "type": "string",
+          "description": "自由文本补充。仅 Hosted 开放；Bound 通道禁入（doc/13 §8.2）。"
+        }
+      },
+      "required": [
+        "schemaVersion"
+      ],
+      "additionalProperties": true
+    },
+    "x-mota-templateParameters": {
+      "title": "本岗位 templateInputData 可用参数（name → 取值约定）",
+      "description": "来源 SOUL.md「payload_result 载荷契约」节末的模板参数说明。完整 allowed_values 事实源仍在 TQX 目录（GET /agent/schema/get），creator 侧不伪造。",
+      "type": "object",
+      "properties": {
+        "factor_exposure_threshold": {
+          "type": "string",
+          "enum": [
+            "5%",
+            "10%",
+            "15%"
+          ],
+          "description": "因子敞口阈值"
+        },
+        "concentration_threshold": {
+          "type": "string",
+          "enum": [
+            "10%",
+            "20%",
+            "30%"
+          ],
+          "description": "集中度阈值"
+        },
+        "max_drawdown": {
+          "type": "string",
+          "enum": [
+            "10%",
+            "20%",
+            "30%"
+          ],
+          "description": "最大回撤阈值"
+        },
+        "take_profit_threshold": {
+          "type": "string",
+          "enum": [
+            "5%",
+            "15%",
+            "30%"
+          ],
+          "description": "止盈参考阈值"
+        },
+        "stop_loss_threshold": {
+          "type": "string",
+          "enum": [
+            "5%",
+            "10%",
+            "15%"
+          ],
+          "description": "止损参考阈值"
+        },
+        "style_deviation_threshold": {
+          "type": "string",
+          "enum": [
+            "5%",
+            "10%"
+          ],
+          "description": "风格偏离阈值"
+        }
+      }
+    },
+    "payloadResult": {
+      "title": "③-a 岗位载荷 payload_result（RISK_MANAGER，V2 岗位输出契约）",
+      "description": "本岗不产出订单；需要减仓时表达为 hedging_suggestions / gating_actions。",
+      "type": "object",
+      "properties": {
+        "gate": {
+          "type": "string",
+          "enum": [
+            "PASS",
+            "WARN",
+            "BREACH"
+          ],
+          "description": "总门控结论。取 checks 中最严档：任一 CRIT → BREACH，否则任一 WARN 或 UNKNOWN → WARN，仅全 OK → PASS。"
+        },
+        "checks": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "dimension": {
+                "type": "string",
+                "enum": [
+                  "SINGLE_NAME",
+                  "SECTOR_EXPOSURE",
+                  "FACTOR_EXPOSURE",
+                  "VAR",
+                  "VOLATILITY",
+                  "STYLE_FACTOR",
+                  "DRAWDOWN",
+                  "STRESS_TEST",
+                  "LIQUIDITY",
+                  "CONCENTRATION",
+                  "STOP_LOSS",
+                  "TAKE_PROFIT",
+                  "OTHERS"
+                ]
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "OK",
+                  "WARN",
+                  "CRIT",
+                  "UNKNOWN"
+                ]
+              },
+              "reasoning": {
+                "type": "string"
+              },
+              "value": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "description": "实测值。判据数据上游没给时填 null（如止盈核对缺 cost_basis），同时把 status 置 UNKNOWN 并在 reasoning 写明缺口——不要为了凑数编一个值。允许 null 的原因：契约原先钉死 number，而「该维度无数可测」是合法业务分支，模型只能填 null 而稳定判非法（dev 实测 2026-07-29，2/2 复现）。"
+              },
+              "threshold": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "description": "阈值。该维度无适用阈值参数时填 null（口径同 value）。"
+              },
+              "detail": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "dimension",
+              "status",
+              "reasoning"
+            ]
+          }
+        },
+        "hedging_suggestions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "对冲建议。gate 为 WARN / BREACH 时必填且非空。"
+        },
+        "exposures": {
+          "type": "object",
+          "description": "敞口快照",
+          "examples": [
+            {
+              "hhi": 0.22,
+              "drawdown_pct": 15.23
+            }
+          ]
+        },
+        "gating_actions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "interpretation": {
+          "type": "string",
+          "description": "风险解读"
+        },
+        "evidenceRefs": {
+          "type": "array",
+          "description": "GRD-6 证据引用。注意键名是 camelCase（平台校验器 EvidenceRefsValidator 按此键名读取），与 payload_result 内其余 snake_case 字段不同。",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "sourceType": {
+                "type": "string",
+                "examples": [
+                  "MCP_TOOL",
+                  "UPSTREAM",
+                  "DOC"
+                ]
+              },
+              "sourceId": {
+                "type": "string",
+                "examples": [
+                  "quotation.get_snapshot"
+                ]
+              },
+              "asOf": {
+                "type": "string",
+                "examples": [
+                  "2026-07-28"
+                ]
+              }
+            },
+            "required": [
+              "sourceType",
+              "sourceId"
+            ]
+          }
+        },
+        "extensions": {
+          "type": "array",
+          "description": "上述字段装不下的扩展信息。"
+        }
+      },
+      "required": [
+        "gate",
+        "checks"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "gate": {
+                "enum": [
+                  "WARN",
+                  "BREACH"
+                ]
+              }
+            },
+            "required": [
+              "gate"
+            ]
+          },
+          "then": {
+            "properties": {
+              "hedging_suggestions": {
+                "minItems": 1
+              }
+            },
+            "required": [
+              "hedging_suggestions"
+            ]
+          }
+        }
+      ],
+      "additionalProperties": false
+    },
+    "motaAgentPayloadV1": {
+      "title": "③ Hermes 容器 stdout 输出 mota-agent-payload v1",
+      "description": "Agent 全部输出必须是单个 JSON 对象——第一个字符 {、最后一个字符 }，无 markdown 围栏、无解释性前后缀。无法完成任务时同样输出该结构：payload_info 说明原因，payload_result 给保守缺省结构。落库进 agent_run.result_json。",
+      "type": "object",
+      "properties": {
+        "payload_result": {
+          "$ref": "#/$defs/payloadResult"
+        },
+        "payload_info": {
+          "type": "string",
+          "description": "非空的人读业务摘要，输出语言随 globalParameters.language。"
+        },
+        "contract_version": {
+          "type": "string",
+          "const": "V2",
+          "description": "本次输出遵循的岗位契约版本（输出自描述）。下游据此决定按哪套 schema 解析 payload_result——与制品版本（creator_agent_version.version，如 v2.1.0）是两个维度：制品版本用于溯源「哪家的第几版」，本字段用于解析。Bound 模式下平台没有创作者的 profile，只有输出自报才知道对方实现的是哪版契约，故为必填。自 profile v2.1.0 起产出；v2.0.0 的输出不带本字段。"
+        }
+      },
+      "required": [
+        "payload_result",
+        "payload_info",
+        "contract_version"
+      ],
+      "additionalProperties": false
+    },
+    "motaAgentResultResponse": {
+      "title": "④ creator → MoTA 终态结果（GET /tqx/api/v1/agent/result 的 data 体）",
+      "description": "与 TQX AgentResultResponse 逐字段同构。外层为 {code, data, error_info}——本兼容层不使用 BaseBizResult。",
+      "type": "object",
+      "properties": {
+        "agent_instance_id": {
+          "type": "string",
+          "description": "Hosted 下即本平台 agent_run.run_id"
+        },
+        "status": {
+          "$ref": "#/$defs/statusCode"
+        },
+        "state": {
+          "$ref": "#/$defs/stateName"
+        },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "payload_result": {
+              "type": [
+                "object",
+                "null"
+              ]
+            },
+            "payload_info": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        "usage": {
+          "type": "object",
+          "description": "Hosted 侧 total_fee 恒为 null——成本在平台 LLM 网关侧计量，不由本层回报。",
+          "properties": {
+            "prompt_tokens": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "completion_tokens": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "total_tokens": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "total_fee": {
+              "type": "null"
+            }
+          }
+        }
+      }
+    },
+    "motaSseEventData": {
+      "title": "⑤ SSE 事件 data 体（POST /tqx/api/v1/agent/invoke，text/event-stream）",
+      "description": "事件类型 progress | done | error；流末尾固定 `data: [DONE]`。响应头 X-Mota-Agent-Instance-Id 先于首个事件返回（MoTA 侧 initTimeout 默认 20s 等的就是它）。Hosted 无原生事件流，由 HostedTqxExecutor 轮询 DB 合成。",
+      "type": "object",
+      "properties": {
+        "agent_instance_id": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/statusCode"
+        },
+        "state": {
+          "$ref": "#/$defs/stateName"
+        },
+        "progress": {
+          "description": "进度信息（可选）"
+        },
+        "error": {
+          "type": "string",
+          "description": "仅 error 事件；失败原因"
+        },
+        "payload_result": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "description": "仅终态事件"
+        },
+        "payload_info": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "仅终态事件"
+        }
+      },
+      "required": [
+        "agent_instance_id",
+        "status",
+        "state"
+      ]
+    },
+    "statusCode": {
+      "type": "integer",
+      "description": "1=运行中；-1=终态成功；2=终态失败。终态判定 status<0 || status==2；失败判定 status==2 || status<-1（doc/97 §5.3，各 developer 通道共用）。",
+      "examples": [
+        1,
+        -1,
+        2
+      ]
+    },
+    "stateName": {
+      "type": "string",
+      "enum": [
+        "running",
+        "done",
+        "failed"
+      ],
+      "description": "Hosted 侧取值集；MoTA 的 state 归一判定另接受 complete/completed/success/succeeded/error/blocked 等同义词。"
+    }
+  }
+}

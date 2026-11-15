@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "title": "MoTA executor",
+    "description": "Runs this Harness agent as a bound Pull worker for MoTA Creator: heartbeat, claim, execute, and return validated results with real token usage.",
+    "detail": "README.md"
+  }
+}

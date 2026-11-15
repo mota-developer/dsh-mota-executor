@@ -1,0 +1,11 @@
+# Inserts the MoTA executor row. The plugin is a workspace package installed
+# with Plugins > Add plugin; it has no runtime npm dependencies.
+- insert:
+    - id: mota-executor
+      name: '@local/dsh-mota-executor'
+      config:
+        language: zh
+        taskTimeoutSeconds: 600
+        selfCheckTimeoutSeconds: 60
+        allowInsecureLoopback: false
+        autoStart: true
