@@ -1,6 +1,6 @@
 # MoTA 执行器（dsh-mota-executor）
 
-把本机的 DeepSeek Harness 接入 MoTA Creator，充当一个「绑定式（BOUND）/ Pull」的常驻 Worker。创作者在 Creator Center 把 Agent 的接入方式设为绑定式后，会拿到 Queue 地址、BOUND_PULL Agent Token（`mpk_…`）、Agent Code 和岗位；把这段绑定说明交给本插件，它就会：
+把本机的 DeepSeek Harness 接入 MoTA Creator，充当一个「绑定式Pull」的常驻 Worker。创作者在 Creator Center 把 Agent 的接入方式设为绑定式后，会拿到 Queue 地址、BOUND_PULL Agent Token（`mpk_…`）、Agent Code 和岗位；把这段绑定说明交给本插件，它就会：
 
 - 按 Pull 协议持续心跳（`heartbeat`），让 Creator 页面显示在线；
 - 长轮询领取任务（`claim`），在租约内续租（`renew`）；
@@ -106,8 +106,9 @@ dsh plugin --profile web add github:mota-developer/dsh-mota-executor#<commit>
 
 ## 开发与测试
 
+在仓库根目录执行：
+
 ```bash
-cd .
 node --test test/
 ```
 
