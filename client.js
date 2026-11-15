@@ -794,16 +794,49 @@ window.__ModuleLoader__.load({
               (props) => h(Panel, { t: props?.t ?? t }),
             ),
           );
-          const dropRow = ctx.slots.inject('sidebar.panellist', () =>
+          // The global panel column is shared by every installed plugin and is
+          // height-bound, so the entry sits beside Settings in the sidebar foot
+          // instead: one action row, wide label only when the sidebar is wide.
+          const openMota = () => {
+            const layout = ctx.get('layout');
+            layout?.selectPanel?.(PANEL_ID);
+          };
+          const dropRow = ctx.slots.inject('sidebar.footer.action', () =>
             ctx.slots.register(
               {
-                name: 'sidebar.panellist',
+                name: 'sidebar.footer.action',
                 id: PANEL_ID,
-                order: 30,
+                order: 40,
                 label: () => t('nav'),
                 locale: NS,
               },
-              (owner) => h(MotaIcon, { size: owner?.size ?? 16, active: owner?.active === true }),
+              (owner) =>
+                h(
+                  'button',
+                  {
+                    type: 'button',
+                    title: t('title'),
+                    onClick: openMota,
+                    style: {
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      padding: owner?.wide ? '6px 10px' : '6px',
+                      border: 'none',
+                      borderRadius: 8,
+                      background: 'transparent',
+                      color: 'var(--dsw-alias-label-secondary)',
+                      font: 'inherit',
+                      fontSize: 12,
+                      cursor: 'pointer',
+                      width: owner?.wide ? '100%' : 'auto',
+                      boxSizing: 'border-box',
+                      textAlign: 'left',
+                    },
+                  },
+                  h(MotaIcon, { size: 16, active: false }),
+                  owner?.wide ? h('span', { style: { whiteSpace: 'nowrap' } }, t('nav')) : null,
+                ),
             ),
           );
           if (typeof dropRow === 'function') disposers.push(dropRow);
