@@ -797,6 +797,21 @@ window.__ModuleLoader__.load({
           // The global panel column is shared by every installed plugin and is
           // height-bound, so the entry sits beside Settings in the sidebar foot
           // instead: one action row, wide label only when the sidebar is wide.
+          // A top-level Settings page, like the market's, so the connector is
+          // also reachable from 设置 → MoTA 执行器 without the sidebar.
+          disposers.push(
+            ctx.slots.register(
+              {
+                name: 'settings.section',
+                id: 'mota',
+                order: 25,
+                label: () => t('title'),
+                locale: NS,
+                inject: () => ({ t }),
+              },
+              (props) => h(Panel, { t: props?.t ?? t }),
+            ),
+          );
           const openMota = () => {
             const layout = ctx.get('layout');
             layout?.selectPanel?.(PANEL_ID);

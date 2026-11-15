@@ -33,6 +33,7 @@ dsh plugin --profile web add github:mota-developer/dsh-mota-executor#<commit>
 ### 界面入口
 
 - **左侧栏**：侧边栏右下角的操作区里、用量行上方，多一行带橙色图标的「MoTA 执行器」入口，点击后主区域显示 MoTA 连接页。它不占用全局面板图标列（`sidebar.panellist`），所以不会挤压「插件」「定时任务」那些图标。
+- **设置页**：设置左侧导航里也会出现「MoTA 执行器」，点开就是同一个连接页。
 - **独立页面**：也可以直接在浏览器打开 `http://127.0.0.1:<Web GUI 端口>/mota`，功能与侧栏页面一致。
 - 两个入口共用同一份绑定与同一个常驻 Worker。
 
