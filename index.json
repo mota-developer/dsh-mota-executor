@@ -1,0 +1,57 @@
+{
+  "format": 1,
+  "title": {
+    "en": "MoTA plugins",
+    "zh": "MoTA 插件"
+  },
+  "description": {
+    "en": "DeepSeek Harness plugins maintained by mota-developer.",
+    "zh": "mota-developer 维护的 DeepSeek Harness 插件。"
+  },
+  "metadata": {
+    "categories": {
+      "creator": {
+        "title": {
+          "en": "Creator",
+          "zh": "创作者"
+        }
+      }
+    }
+  },
+  "plugins": [
+    {
+      "name": "dsh-mota-executor",
+      "title": {
+        "en": "MoTA executor",
+        "zh": "MoTA 执行器"
+      },
+      "description": {
+        "en": "Run this DeepSeek Harness as a bound Pull worker for MoTA Creator: heartbeat, claim, execute with a real child agent, and report real token usage.",
+        "zh": "把本机 DeepSeek Harness 接入 MoTA Creator，作为绑定式 Pull 常驻 Worker：心跳、取任务、用真实子 Agent 执行并回传真实用量。"
+      },
+      "author": "mota-developer",
+      "homepage": "https://github.com/mota-developer/dsh-mota-executor",
+      "repository": {
+        "url": "https://github.com/mota-developer/dsh-mota-executor"
+      },
+      "metadata": {
+        "category": "creator",
+        "keywords": ["mota", "creator", "worker", "executor", "agent"]
+      },
+      "versions": [
+        {
+          "version": "0.1.0",
+          "publishTimestamp": 1794754480,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/mota-developer/dsh-mota-executor",
+            "commit": "403f7523a04fe1b8a8da5927f1314525333cd9ec"
+          },
+          "engines": {
+            "dsh": ">=0.2.2-rc.1 <0.3.0"
+          }
+        }
+      ]
+    }
+  ]
+}
