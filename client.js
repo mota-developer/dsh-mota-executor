@@ -776,7 +776,9 @@ window.__ModuleLoader__.load({
     }
 
     return {
-      inject: ['slots'],
+      // Client services used through property access must be declared here;
+      // reading ctx.locale without inject throws "cannot get property ... without inject".
+      inject: ['slots', 'locale', 'layout'],
       apply(ctx) {
         ctx.effect(() => ctx.locale.register(NS, { zh: ZH, en: EN }), 'mota: dictionaries');
         const t = ctx.locale.bind(NS);
@@ -798,8 +800,10 @@ window.__ModuleLoader__.load({
           // height-bound, so the entry sits beside Settings in the sidebar foot
           // instead: one action row, wide label only when the sidebar is wide.
           // A top-level Settings page, like the market's, so the connector is
-          // also reachable from 设置 → MoTA 执行器 without the sidebar.
-          disposers.push(
+          // also reachable from 设置 → MoTA 执行器 without the sidebar. The
+          // settings shell declares this slot later than an immediately-loaded
+          // client, so wait for the declaration with slots.inject.
+          const dropSection = ctx.slots.inject('settings.section', () =>
             ctx.slots.register(
               {
                 name: 'settings.section',
@@ -812,6 +816,7 @@ window.__ModuleLoader__.load({
               (props) => h(Panel, { t: props?.t ?? t }),
             ),
           );
+          if (typeof dropSection === 'function') disposers.push(dropSection);
           const openMota = () => {
             const layout = ctx.get('layout');
             layout?.selectPanel?.(PANEL_ID);
