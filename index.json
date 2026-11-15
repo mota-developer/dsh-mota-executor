@@ -51,7 +51,7 @@
           "source": {
             "type": "git",
             "url": "https://github.com/mota-developer/dsh-mota-executor",
-            "commit": "9e577904c32afe373a4b69cdb2420510e351eccd"
+            "commit": "a1a7c18e6b8959ae719cd3bee72e0933398cbef6"
           },
           "engines": {
             "dsh": ">=0.2.2-rc.1 <0.3.0"
