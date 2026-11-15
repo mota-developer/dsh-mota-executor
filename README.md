@@ -12,12 +12,30 @@ Token 只作为 URL query 参数发往 Creator 下发的队列地址，不写进
 
 ## 安装
 
-1. 确认本机 Harness 已启动（Web GUI 默认 `http://127.0.0.1:59121`）。
-2. 打开 **Plugins**（设置里的插件页）→ **Add plugin** → 选择本目录：
-   `.`
-3. 安装后在插件列表里应能看到「MoTA 执行器」及其图标；建议新开一个会话让插件生效。
+**方式一：发布版（推荐）**，需要 DSH `>= 0.2.2-rc.1 < 0.3.0`：
 
-插件是纯 Host 插件、零运行时 npm 依赖，不需要构建，也不修改 profile 的 `package.json`。
+```bash
+dsh plugin --profile web add dsh-mota-executor
+```
+
+或在插件页的**发现**里从索引安装（前提是本机已添加包含本插件的索引源）。
+
+**方式二：GitHub 固定提交**：
+
+```bash
+dsh plugin --profile web add github:mota-developer/dsh-mota-executor#<commit>
+```
+
+**方式三：本地目录**：打开 **Plugins**（设置里的插件页）→ **Add plugin** → 选择本目录。
+
+安装后在插件列表里应能看到「MoTA 执行器」及其图标；建议新开一个会话让插件生效。插件是纯 Host 插件、零运行时 npm 依赖，不需要构建。
+
+## 发布与索引
+
+- npm 包名 `dsh-mota-executor`，`package.json` 里声明 `engines.dsh`（`>=0.2.2-rc.1 <0.3.0`）、`repository`、`keywords` 与 `dsh.bundle.patch`；`files` 只带运行时需要的文件。
+- 仓库根目录的 `index.json` 是 format 1 插件市场索引（当前用固定 commit 的 git 源，npm 发布后可改成 `{"type":"npm"}`）。
+- `node scripts/verify-index.mjs` 自检索引与包的一致性；加 `--remote` 会通过 `git ls-remote` 校验索引钉定的 commit 确实存在。
+- 发版顺序：改版本号 → `npm test` → `npm publish` → 更新 `index.json` 的 `version` / `publishTimestamp` / `source` → `npm run verify:index -- --remote` → 提交推送。
 
 ## 连接
 

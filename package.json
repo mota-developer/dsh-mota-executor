@@ -1,7 +1,6 @@
 {
-  "name": "@local/dsh-mota-executor",
+  "name": "dsh-mota-executor",
   "version": "0.1.0",
-  "private": true,
   "description": "Run this DeepSeek Harness agent as a bound Pull worker (executor) for MoTA Creator.",
   "type": "module",
   "exports": {
@@ -25,10 +24,33 @@
     }
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=20",
+    "dsh": ">=0.2.2-rc.1 <0.3.0"
   },
   "scripts": {
-    "test": "node --test test/"
+    "test": "node --test test/",
+    "verify:index": "node scripts/verify-index.mjs",
+    "prepublishOnly": "npm test && node scripts/verify-index.mjs"
   },
-  "license": "MIT"
+  "keywords": [
+    "dsh-plugin",
+    "deepseek-harness",
+    "mota",
+    "mota-creator",
+    "agent",
+    "worker"
+  ],
+  "author": "mota-developer",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mota-developer/dsh-mota-executor.git"
+  },
+  "homepage": "https://github.com/mota-developer/dsh-mota-executor#readme",
+  "bugs": {
+    "url": "https://github.com/mota-developer/dsh-mota-executor/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
 }
