@@ -5,12 +5,14 @@
   "type": "module",
   "exports": {
     ".": "./index.js",
+    "./client": "./client.js",
     "./icon": "./icon.svg",
     "./locale/*.json": "./locale/*.json",
     "./package.json": "./package.json"
   },
   "files": [
     "index.js",
+    "client.js",
     "lib",
     "schemas",
     "locale",
@@ -21,6 +23,13 @@
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-locale"
+      ]
     }
   },
   "engines": {
