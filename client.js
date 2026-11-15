@@ -806,7 +806,10 @@ window.__ModuleLoader__.load({
               {
                 name: 'sidebar.footer.action',
                 id: PANEL_ID,
-                order: 40,
+                // Above the usage row in the same footer stack (usage rows sit
+                // at -10 / 0 / 100), so the entry is a visible labelled row
+                // rather than a bare icon lost among other actions.
+                order: -20,
                 label: () => t('nav'),
                 locale: NS,
               },
@@ -818,10 +821,12 @@ window.__ModuleLoader__.load({
                     title: t('title'),
                     onClick: openMota,
                     style: {
-                      display: 'inline-flex',
+                      display: 'flex',
                       alignItems: 'center',
                       gap: 8,
-                      padding: owner?.wide ? '6px 10px' : '6px',
+                      width: owner?.wide === false ? 'auto' : '100%',
+                      minWidth: 0,
+                      padding: '6px 8px',
                       border: 'none',
                       borderRadius: 8,
                       background: 'transparent',
@@ -829,13 +834,25 @@ window.__ModuleLoader__.load({
                       font: 'inherit',
                       fontSize: 12,
                       cursor: 'pointer',
-                      flex: '0 0 auto',
-                      maxWidth: '100%',
                       boxSizing: 'border-box',
                       textAlign: 'left',
                     },
                   },
                   h(MotaIcon, { size: 16, active: false }),
+                  owner?.wide === false
+                    ? null
+                    : h(
+                        'span',
+                        {
+                          style: {
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                            minWidth: 0,
+                          },
+                        },
+                        t('title'),
+                      ),
                 ),
             ),
           );
