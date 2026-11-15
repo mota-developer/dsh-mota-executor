@@ -47,11 +47,11 @@
       "versions": [
         {
           "version": "0.1.0",
-          "publishTimestamp": 1794759547,
+          "publishTimestamp": 1794760441,
           "source": {
             "type": "git",
             "url": "https://github.com/mota-developer/dsh-mota-executor",
-            "commit": "5b3b68e262fa44ee72c1b43f691d8fad7c98a6ef"
+            "commit": "f09a7aa0a934db50976a24823b3dd90cc496ff35"
           },
           "engines": {
             "dsh": ">=0.2.2-rc.1 <0.3.0"
