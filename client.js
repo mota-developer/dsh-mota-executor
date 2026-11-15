@@ -646,16 +646,6 @@ window.__ModuleLoader__.load({
                 ),
                 h(
                   Field,
-                  { label: t('agentCode') },
-                  h('input', {
-                    value: form.agentCode,
-                    onChange: (event) => edit({ agentCode: event.target.value }),
-                    style: inputStyle,
-                    spellCheck: false,
-                  }),
-                ),
-                h(
-                  Field,
                   { label: t('token'), hint: connection ? t('tokenKeep') : null },
                   h('input', {
                     type: 'password',
@@ -676,16 +666,6 @@ window.__ModuleLoader__.load({
                     h('option', { value: '' }, '—'),
                     ...POSITIONS.map(([value, label]) => h('option', { key: value, value }, `${label}（${value}）`)),
                   ),
-                ),
-                h(
-                  Field,
-                  { label: t('workerId'), hint: t('workerHint') },
-                  h('input', {
-                    value: form.workerId,
-                    onChange: (event) => edit({ workerId: event.target.value }),
-                    style: inputStyle,
-                    spellCheck: false,
-                  }),
                 ),
               ),
               h(

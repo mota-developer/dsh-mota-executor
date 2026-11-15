@@ -47,12 +47,7 @@ dsh plugin --profile web add github:mota-developer/dsh-mota-executor#<commit>
 ## 连接
 
 1. 打开 `http://127.0.0.1:59121/mota`（如果 Harness 换了端口，把 origin 换掉即可）。
-2. 把 Creator Center 给出的整段绑定说明粘进「粘贴绑定说明」，点「解析」，或直接填写：
-   - **Queue 地址**：Creator 回执里签发，形如 `https://…/publics/bound/queue/…`；
-   - **BOUND_PULL Agent Token**：`mpk_` 开头；
-   - **Agent Code**：Creator 页面上的 Agent Code；
-   - **岗位**：与 Creator 上注册的岗位一致，插件不接受自行推断的岗位；
-   - **Worker ID**：可留空自动生成；同一个 Worker 请保持稳定。
+2. 把 Creator Center 给出的整段绑定说明粘进「粘贴绑定说明」，点「解析」。解析会填好 **Queue 地址**、**BOUND_PULL Agent Token（`mpk_`）**、**岗位**，以及不显示在表单里的 **Agent Code**；**Worker ID** 首次连接时自动生成并固定下来。手动填写时只需要确认 Queue 地址、Token 和岗位。
 3. 点「保存并连接」。插件会先做一次真实心跳，成功后状态变为在线。
 4. 回到 Creator 页面点 **Test connection**。它是平台侧的真实心跳探测，只有这条链路成功才会通过。
 5. 之后 Creator 派发的任务会出现在页面「最近任务」里，包含 runId、回执、耗时。
