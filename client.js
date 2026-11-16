@@ -608,6 +608,10 @@ window.__ModuleLoader__.load({
       }, [refresh]);
 
       useEffect(() => {
+        if (logAgent !== 'all' && !agents.some((agent) => agent.id === logAgent)) setLogAgent('all');
+      }, [agents, logAgent]);
+
+      useEffect(() => {
         if (tab !== 'logs') return undefined;
         let stopped = false;
         const load = async () => {
@@ -684,6 +688,8 @@ window.__ModuleLoader__.load({
               h('button', { type: 'button', className: 'mota-btn mota-btn-plain', onClick: () => { setCreating(false); setSelectedId(null); } }, `‹ ${t('back')}`),
             ),
             h(AgentForm, {
+              // Remount per Agent so switching never shows the previous form state.
+              key: selected?.id ?? 'new',
               t,
               agent: selected,
               mode: selected ? 'edit' : 'create',

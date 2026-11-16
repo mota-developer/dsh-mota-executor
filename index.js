@@ -108,7 +108,11 @@ export function apply(ctx, config) {
     }
 
     function viewOf(runtime) {
-      const status = runtime.worker?.getStatus() ?? stoppedStatus();
+      const raw = runtime.worker?.getStatus() ?? stoppedStatus();
+      // Durable replay internals stay server-side; the console only needs status.
+      const { pending, completedRunIds, ...status } = raw;
+      void pending;
+      void completedRunIds;
       if (!status.runs?.length && runtime.agent.history?.length) status.runs = runtime.agent.history;
       return {
         ...agentView(runtime.agent, pricing()),
@@ -122,7 +126,37 @@ export function apply(ctx, config) {
       return runtime;
     }
 
-    async function persistStats(runtime, result) {
+    function persistDurable(runtime) {
+      const run = async () => {
+        if (runtime.disposed) return;
+        const durable = runtime.worker?.getStatus?.() ?? {};
+        try {
+          await credentials.modifyRecord(agentKey(runtime.agent.id), async (current) => {
+            if (current?.kind !== 'grant' || !current.payload) return current;
+            return {
+              kind: 'grant',
+              payload: {
+                ...current.payload,
+                history: Array.isArray(durable.runs) ? durable.runs.slice(0, 10) : (current.payload.history ?? []),
+                completedRunIds: Array.isArray(durable.completedRunIds) ? durable.completedRunIds.slice(-100) : (current.payload.completedRunIds ?? []),
+                pending: durable.pending && typeof durable.pending === 'object' ? durable.pending : (current.payload.pending ?? {}),
+                updatedAt: new Date().toISOString(),
+              },
+            };
+          });
+        } catch (error) {
+          logger.warn(`save pending result for ${runtime.agent.id} failed: ${errorText(error)}`);
+        }
+      };
+      runtime.statsChain = (runtime.statsChain ?? Promise.resolve()).then(run, run);
+      return runtime.statsChain;
+    }
+
+    function persistStats(runtime, result) {
+      // Serialize per-Agent so two tasks finishing at the same instant cannot
+      // overwrite each other's counters on the credentials record.
+      const run = async () => {
+      if (runtime.disposed) return;
       const agent = runtime.agent;
       const stats = { ...(agent.stats ?? {}) };
       const usage = result?.usage;
@@ -134,9 +168,13 @@ export function apply(ctx, config) {
         stats.reasoningTokens = (stats.reasoningTokens ?? 0) + (Number(usage.reasoningTokens) || 0);
         stats.invocations = (stats.invocations ?? 0) + (Number(usage.invocationCount) || 0);
       }
-      stats.runs = (stats.runs ?? 0) + 1;
-      if (result?.accepted) stats.accepted = (stats.accepted ?? 0) + 1;
-      else stats.rejected = (stats.rejected ?? 0) + 1;
+      // Count a run only when its result actually reached the platform;
+      // lease-lost work still contributes its real token usage.
+      if (result?.delivered !== false) {
+        stats.runs = (stats.runs ?? 0) + 1;
+        if (result?.accepted) stats.accepted = (stats.accepted ?? 0) + 1;
+        else stats.rejected = (stats.rejected ?? 0) + 1;
+      }
       runtime.agent = { ...agent, stats };
       const durable = runtime.worker?.getStatus?.() ?? {};
       try {
@@ -159,6 +197,9 @@ export function apply(ctx, config) {
       } catch (error) {
         logger.warn(`save stats for ${agent.id} failed: ${errorText(error)}`);
       }
+      };
+      runtime.statsChain = (runtime.statsChain ?? Promise.resolve()).then(run, run);
+      return runtime.statsChain;
     }
 
     async function stopAgent(runtime, reason) {
@@ -186,6 +227,7 @@ export function apply(ctx, config) {
         },
         onLog: (entry) => pushLog(runtime.agent.id, entry),
         onChange: () => {},
+        onPending: () => { void persistDurable(runtime); },
         onTaskDone: (result) => {
           void persistStats(runtime, result).then(() => {
             pushLog(runtime.agent.id, {
@@ -206,7 +248,7 @@ export function apply(ctx, config) {
     }
 
     async function loadRuntime(agent) {
-      const runtime = { agent, worker: null, logs: [] };
+      const runtime = { agent, worker: null, logs: [], statsChain: Promise.resolve() };
       runtimes.set(agent.id, runtime);
       if (cfg.autoStart !== false && agent.enabled) {
         try {
@@ -274,7 +316,10 @@ export function apply(ctx, config) {
             (runtime.worker == null ||
               runtime.worker.concurrency !== saved.concurrency ||
               runtime.worker.connection?.queueUrl !== saved.queueUrl ||
-              runtime.worker.connection?.agentCode !== saved.agentCode);
+              runtime.worker.connection?.agentCode !== saved.agentCode ||
+              runtime.worker.connection?.token !== saved.token ||
+              runtime.worker.connection?.positionType !== saved.positionType ||
+              runtime.worker.connection?.workerId !== saved.workerId);
           if (!saved.enabled) {
             await stopAgent(runtime, 'disabled');
           } else if (shouldRestart) {
@@ -292,6 +337,8 @@ export function apply(ctx, config) {
         return enqueue(async () => {
           const runtime = findRuntime(id);
           await stopAgent(runtime, 'deleted');
+          await (runtime.statsChain ?? Promise.resolve()).catch(() => {});
+          runtime.disposed = true;
           await deleteAgentRecord(credentials, runtime.agent.id);
           runtimes.delete(runtime.agent.id);
           return { ok: true };

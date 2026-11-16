@@ -118,6 +118,41 @@ test('executor forwards expectedOutputFormat and targetMarkets as additive const
   assert.ok(prompt.includes('附加'));
 });
 
+test('executor rejects a task whose supplied role differs from the registered Agent', async () => {
+  const executor = new TaskExecutor({ ctx: fakeCtx({ replies: [validReply] }), config: {}, logger: null });
+  await assert.rejects(
+    executor.execute({
+      connection,
+      task: { runId: 'run-role', agentCode: 'agent-test', positionType: 'TECHNICAL_ANALYST', templateInputData: [] },
+      signal: undefined,
+    }),
+    (error) => error.code === 'TASK_IDENTITY_INVALID' && /positionType/.test(error.message),
+  );
+});
+
+test('a blank payload_info is rejected and repaired instead of silently accepted', async () => {
+  const capture = [];
+  const blank = JSON.stringify({ payload_result: { assessments: [], summary: 'x' }, payload_info: '   ' });
+  const executor = new TaskExecutor({ ctx: fakeCtx({ replies: [blank, validReply], capture }), config: {}, logger: null });
+  const { envelope } = await executor.execute({
+    connection,
+    task: { runId: 'run-blank', agentCode: 'agent-test', positionType: 'FUNDAMENTAL_ANALYST', templateInputData: [] },
+    signal: undefined,
+  });
+  assert.equal(capture.length, 2);
+  assert.ok(envelope.payload_info.includes('本轮没有可评估的标的'));
+});
+
+test('failure envelope with an invalid measurement omits usage instead of sending a fake total', () => {
+  const built = buildFailureEnvelope('FUNDAMENTAL_ANALYST', {
+    language: 'zh',
+    reason: 'RUNTIME_USAGE_INVALID',
+    runId: 'run-zero',
+    measuredUsage: { totalTokens: 0, promptTokens: 0, completionTokens: 0 },
+  });
+  assert.equal('usage' in built.envelope, false);
+});
+
 test('failure envelope is honest: disclaimer appended, real usage only when measured', () => {
   const without = buildFailureEnvelope('FUNDAMENTAL_ANALYST', { language: 'zh', reason: 'TASK_SHAPE_INVALID', runId: 'run-x' });
   assert.equal('usage' in without.envelope, false);
@@ -137,6 +172,7 @@ let queueBase;
 const completed = [];
 let claimsByWorker = {};
 let dispatchOnce = true;
+let replayPending = true;
 
 before(async () => {
   queue = createServer((req, res) => {
@@ -158,6 +194,12 @@ before(async () => {
       }
       if (action === 'claim') {
         claimsByWorker[workerId] = (claimsByWorker[workerId] ?? 0) + 1;
+        if (workerId === 'dsh-replay-worker' && replayPending) {
+          replayPending = false;
+          res.writeHead(200, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ success: true, code: 'OK', runId: 'run-replay-1', agentCode: 'agent-test', positionType: 'FUNDAMENTAL_ANALYST', templateInputData: [], leaseExpireAt: Date.now() + 300_000 }));
+          return;
+        }
         if (dispatchOnce && workerId === 'dsh-failure-worker') {
           dispatchOnce = false;
           res.writeHead(200, { 'content-type': 'application/json' });
@@ -245,4 +287,35 @@ test('claim stays disabled while the executor is not ready; heartbeat stays aliv
   assert.ok(status.message.includes('claim 未启动'));
   assert.equal(claimsByWorker['dsh-notready-worker'] ?? 0, 0);
   await worker.stop({ reason: 'test-done' });
+});
+
+test('a replayed completion after restart reports usage and delivered statistics', async () => {
+  const reports = [];
+  const envelope = {
+    payload_result: {},
+    payload_info: 'replayed',
+    contract_version: 'V2',
+    usage: { totalTokens: 42, promptTokens: 30, completionTokens: 12, invocationCount: 1, schemaVersion: '1.0', status: 'FINAL', estimated: false },
+  };
+  const executor = new TaskExecutor({ ctx: fakeCtx({ replies: [] }), config: {}, logger: null });
+  const worker = new MotaWorker({
+    ctx: fakeCtx({}),
+    config: { allowInsecureLoopback: true },
+    executor,
+    logger: null,
+    concurrency: 1,
+    resume: { completedRunIds: [], pending: { 'run-replay-1': { envelope, startedAt: Date.now() - 2000, failure: false } } },
+    onTaskDone: (result) => reports.push(result),
+  });
+  await worker.start({ ...connection, queueUrl: `${queueBase}/publics/bound/queue/q-replay`, workerId: 'dsh-replay-worker' });
+  const deadline = Date.now() + 8000;
+  while (reports.length === 0 && Date.now() < deadline) await new Promise((r) => setTimeout(r, 100));
+  await worker.stop({ reason: 'test-done' });
+  assert.equal(reports.length, 1);
+  assert.equal(reports[0].replayed, true);
+  assert.equal(reports[0].delivered, true);
+  assert.equal(reports[0].usage.totalTokens, 42);
+  const sent = completed.find((entry) => entry.runId === 'run-replay-1');
+  assert.ok(sent, 'replayed envelope was sent');
+  assert.equal(sent.body.usage.totalTokens, 42);
 });

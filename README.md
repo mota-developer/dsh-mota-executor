@@ -4,7 +4,7 @@
 
 - 按 Pull 协议持续心跳（`heartbeat`），让 Creator 页面显示在线；
 - 按每个 Agent 的并发数长轮询领取任务（`claim`），在租约内续租（`renew`）；
-- 每个任务开一个独立的 Harness 子 Agent，按岗位的 V2 输出契约执行；
+- 每个任务开一个独立的 Harness 子 Agent，按岗位的 V2 输出契约执行（最多 3 次生成：1 次初始 + 2 次修复）；
 - 用校验过的四字段信封回传结果和**真实** Token 用量（`complete`），并读取回执；
 - 平台要求自检时，跑一遍最短的真实链路并如实上报 `selfCheck`。
 
@@ -81,7 +81,7 @@ dsh plugin --profile desktop add github:mota-developer/dsh-mota-executor#<commit
   - 英文：`AI-generated research for reference only, not investment advice.`
 - `usage.totalTokens` 为 ≥1 的整数，`cachedInputTokens ≤ promptTokens`。
 
-契约不满足时会让子 Agent 带着具体问题自修复，最多 3 轮；仍不满足则本任务不回传，Agent 日志会记录失败原因。
+契约不满足时会让子 Agent 带着具体问题自修复：最多 2 轮修复（共 3 次生成）；仍不满足则按诚实失败路径立即回传失败信封（不伪造结论、不空等租约），平台会拒绝/归类，Agent 日志记录原因。
 
 ## 配置项（`cordis.patch.yml`）
 
@@ -117,6 +117,7 @@ dsh plugin --profile desktop add github:mota-developer/dsh-mota-executor#<commit
 - `taskBrief.expectedOutputFormat`（字符串或对象）作为附加约束转发给模型，只能叠加、不能削弱岗位契约；`globalParameters.targetMarkets` 明确限定分析市场。
 - 任务内容会发送给本机 DSH 当前配置的模型提供方；这是执行任务的必要条件。
 - 队列请求不跟随重定向，错误信息与界面状态都不回显完整 URL 或 Token。
+- 控制台 API 只绑定本机回环地址，写操作要求 `application/json` 并拒绝跨站 Origin（浏览器跨站表单无法触达）；本机其它进程仍可访问，属本机可信环境假设，请勿把端口转发到公网。
 - 执行任务的子 Agent 与本机 Harness 共享工具权限（当前 DSH API 无法安全地「禁用全部工具」）。插件在系统提示里明确禁止调用工具并把任务数据标记为不可信，但这只是提示词层的约束，**请只接入可信的 Creator 账号**。
 
 ## 市场与索引
