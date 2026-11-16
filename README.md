@@ -1,4 +1,4 @@
-# MoTA 5 Agent（dsh-mota-executor）
+# MoTA Executor（dsh-mota-executor）
 
 把本机的 DeepSeek Harness 接入 MoTA Creator：一个插件实例可以同时托管**多个**绑定式 Pull Agent。每个 Agent 有自己的 Creator 队列、自己的并发能力、自己的 Token/费用统计和日志；Creator 在绑定式接入下发来的 Queue 地址、BOUND_PULL Agent Token（`mpk_…`）、Agent Code 与岗位，交给本插件就能跑起来：
 
@@ -39,12 +39,12 @@ dsh plugin --profile desktop add dsh-mota-executor
 
 **方式四：本地目录**：打开 **设置 → 插件** → **Add plugin** → 选择本目录。
 
-安装后在插件列表里应能看到「MoTA 5 Agent」及其图标；建议重开应用让插件生效。插件是纯 Host + 轻量 Client 插件、零运行时 npm 依赖，不需要构建。
+安装后在插件列表里应能看到「MoTA Executor」及其图标；建议重开应用让插件生效。插件是纯 Host + 轻量 Client 插件、零运行时 npm 依赖，不需要构建。
 
 ### 界面入口
 
-- **左侧栏**：侧边栏右下角的操作区里、用量行上方，一行带边框的「MoTA 5 Agent」入口（橙色图标 + 文字）。它不占用全局面板图标列（`sidebar.panellist`），不会挤压「插件」「定时任务」那些图标。
-- **设置页**：设置左侧导航里的「MoTA 5 Agent」，点开就是同一个控制台。
+- **左侧栏**：侧边栏右下角的操作区里、用量行上方，一行带边框的「MoTA Executor」入口（橙色图标 + 文字）。它不占用全局面板图标列（`sidebar.panellist`），不会挤压「插件」「定时任务」那些图标。
+- **设置页**：设置左侧导航里的「MoTA Executor」，点开就是同一个控制台。
 - **独立页面**：`http://127.0.0.1:<Web GUI 端口>/mota` 仍保留单 Agent 兼容页，适合排查连接问题。
 
 ## 使用

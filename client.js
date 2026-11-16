@@ -24,8 +24,8 @@ window.__ModuleLoader__.load({
     ];
 
     const ZH = {
-      title: 'MoTA 5 Agent',
-      nav: 'MoTA 5 Agent',
+      title: 'MoTA Executor',
+      nav: 'MoTA Executor',
       subtitle: '在本机运行多个 MoTA Creator 绑定式 Pull Agent：每个 Agent 独立队列、独立并发、独立用量与费用。',
       openPage: '在浏览器中打开完整设置页',
       tabsAgents: 'Agent',
@@ -108,8 +108,8 @@ window.__ModuleLoader__.load({
     };
 
     const EN = {
-      title: 'MoTA 5 Agent',
-      nav: 'MoTA 5 Agent',
+      title: 'MoTA Executor',
+      nav: 'MoTA Executor',
       subtitle: 'Run multiple bound Pull Agents for MoTA Creator: each Agent keeps its own queue, concurrency, usage and cost.',
       openPage: 'Open the full setup page in a browser',
       tabsAgents: 'Agents',

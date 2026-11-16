@@ -130,7 +130,7 @@ test('serves the setup page on /mota', async () => {
   const res = await fetch(`${pluginBase}/mota`);
   assert.equal(res.status, 200);
   const html = await res.text();
-  assert.match(html, /MoTA 5 Agent/);
+  assert.match(html, /MoTA Executor/);
   assert.match(html, /保存并连接/);
 });
 

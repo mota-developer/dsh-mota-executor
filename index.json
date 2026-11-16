@@ -1,8 +1,8 @@
 {
   "format": 1,
   "title": {
-    "en": "MoTA 5 Agent",
-    "zh": "MoTA 5 Agent"
+    "en": "MoTA Executor",
+    "zh": "MoTA Executor"
   },
   "description": {
     "en": "DeepSeek Harness plugins maintained by mota-developer.",
@@ -22,8 +22,8 @@
     {
       "name": "dsh-mota-executor",
       "title": {
-        "en": "MoTA 5 Agent",
-        "zh": "MoTA 5 Agent"
+        "en": "MoTA Executor",
+        "zh": "MoTA Executor"
       },
       "description": {
         "en": "Run several bound Pull Agents for MoTA Creator inside DeepSeek Harness: per-Agent queue and concurrency, token and cost statistics, and filterable Agent logs.",
@@ -47,7 +47,7 @@
       },
       "versions": [
         {
-          "version": "0.2.0",
+          "version": "0.2.1",
           "publishTimestamp": 1794763267,
           "source": {
             "type": "git",
