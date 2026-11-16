@@ -19,22 +19,22 @@ Token 只作为 URL query 参数发往 Creator 下发的队列地址，不写进
 
 ## 安装
 
-**方式一：一条命令（推荐）**，需要 DSH `>= 0.2.2-rc.1 < 0.3.0`：
+**方式一：npm（推荐）**，需要 DSH `>= 0.2.2-rc.1 < 0.3.0`：
+
+```bash
+dsh plugin --profile desktop add dsh-mota-executor
+```
+
+**方式二：预构建 tarball（不经过 npm）**：
 
 ```bash
 dsh plugin --profile desktop add https://github.com/mota-developer/dsh-mota-executor/releases/latest/download/dsh-mota-executor.tgz
 ```
 
-**方式二：GitHub 固定提交**：
+**方式三：GitHub 固定提交**：
 
 ```bash
 dsh plugin --profile desktop add github:mota-developer/dsh-mota-executor#<commit>
-```
-
-**方式三：npm（发布后）**：
-
-```bash
-dsh plugin --profile desktop add dsh-mota-executor
 ```
 
 **方式四：本地目录**：打开 **设置 → 插件** → **Add plugin** → 选择本目录。
@@ -121,7 +121,7 @@ dsh plugin --profile desktop add dsh-mota-executor
 
 ## 市场与索引
 
-- 仓库根目录的 `index.json` 是 format 1 插件市场索引，钉定固定 commit 的 git 源。
+- 仓库根目录的 `index.json` 是 format 1 插件市场索引，已发布到 npm，索引使用 npm 源；`0.0.0-stage` 是 npm 对首次发布的占位版本，不影响安装。
 - `node scripts/verify-index.mjs` 自检索引与包的一致性；`--remote` 额外校验索引钉定的 commit 与 npm 版本。
 - 已向 [`awesome-dsh-plugin`](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin) 提交 `data/plugins/mota-developer__dsh-mota-executor.yml`，收录后会在 dshmarket 的「插件市场」里出现，可直接一键安装。
 

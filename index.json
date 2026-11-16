@@ -50,9 +50,7 @@
           "version": "0.2.4",
           "publishTimestamp": 1794795953,
           "source": {
-            "type": "git",
-            "url": "https://github.com/mota-developer/dsh-mota-executor",
-            "commit": "6777b6ae4c7b3d08caf4ddb230bb6dcfaaaf5a8d"
+            "type": "npm"
           },
           "engines": {
             "dsh": ">=0.2.2-rc.1 <0.3.0"
