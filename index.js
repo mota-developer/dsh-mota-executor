@@ -108,9 +108,11 @@ export function apply(ctx, config) {
     }
 
     function viewOf(runtime) {
+      const status = runtime.worker?.getStatus() ?? stoppedStatus();
+      if (!status.runs?.length && runtime.agent.history?.length) status.runs = runtime.agent.history;
       return {
         ...agentView(runtime.agent, pricing()),
-        status: runtime.worker?.getStatus() ?? stoppedStatus(),
+        status,
       };
     }
 
@@ -136,12 +138,23 @@ export function apply(ctx, config) {
       if (result?.accepted) stats.accepted = (stats.accepted ?? 0) + 1;
       else stats.rejected = (stats.rejected ?? 0) + 1;
       runtime.agent = { ...agent, stats };
+      const durable = runtime.worker?.getStatus?.() ?? {};
       try {
         await credentials.modifyRecord(agentKey(agent.id), async (current) => {
           const payload = current?.kind === 'grant' && current.payload && typeof current.payload === 'object'
             ? current.payload
             : runtime.agent;
-          return { kind: 'grant', payload: { ...payload, stats, updatedAt: new Date().toISOString() } };
+          return {
+            kind: 'grant',
+            payload: {
+              ...payload,
+              stats,
+              history: Array.isArray(durable.runs) ? durable.runs.slice(0, 10) : (payload.history ?? []),
+              completedRunIds: Array.isArray(durable.completedRunIds) ? durable.completedRunIds.slice(-100) : (payload.completedRunIds ?? []),
+              pending: durable.pending && typeof durable.pending === 'object' ? durable.pending : (payload.pending ?? {}),
+              updatedAt: new Date().toISOString(),
+            },
+          };
         });
       } catch (error) {
         logger.warn(`save stats for ${agent.id} failed: ${errorText(error)}`);
@@ -167,6 +180,10 @@ export function apply(ctx, config) {
         executor,
         logger,
         concurrency: runtime.agent.concurrency,
+        resume: {
+          completedRunIds: runtime.agent.completedRunIds,
+          pending: runtime.agent.pending,
+        },
         onLog: (entry) => pushLog(runtime.agent.id, entry),
         onChange: () => {},
         onTaskDone: (result) => {

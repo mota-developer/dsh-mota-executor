@@ -65,6 +65,9 @@ dsh plugin --profile desktop add dsh-mota-executor
 - 租约（`leaseExpireAt`）剩余时间约 1/3 时续租；续租冲突（409）会取消当前执行、不回传。
 - 回传只认 HTTP 200 + `accepted` 布尔值；网络 / 5xx / 429 会用**完全相同**的字节重试，重试预算用尽则保留原结果，等平台重新派发同一 runId 时原样重放，不会重复执行。
 - 参数错误（`000002`）、401、403 会停止该 Agent 的所有循环，并在它的日志里显示原因，等待人工更新 Token。
+- **执行器就绪门控**：claim 循环只在子 Agent 服务与模型路由可用时启动；未就绪时心跳保持在线但明确报告「claim 未启动」。连续 3 次任务拿不到真实用量会暂停 claim（心跳保持），修复后重新启动该 Agent 恢复。
+- **诚实失败回传**：执行/校验失败时立即回传失败信封（`payload_result` 为最小诚实对象、`payload_info` 说明原因并附免责声明；有真实用量就带上，模型没跑就不带 usage），让平台拒绝/归类，而不是空等租约耗尽。本地校验结果如实记录；失败回传被 `accepted=false` 结算后不会换答案重发。
+- **重启可续**：已完成 runId、最近回执与未确认的回传字节持久化在 Agent 凭据记录里，应用重启后去重与字节一致重放继续生效。
 - 总 Token、输入、输出、缓存、推理用量都来自子 Agent 的 `assistant/message` 事件；拿不到真实用量时任务按失败处理，不会伪造数字。
 
 ## 输出契约
@@ -110,7 +113,8 @@ dsh plugin --profile desktop add dsh-mota-executor
 - 每个 Agent 的 Token 存在 DSH 凭据库的独立 GrantRecord 里（key `mota/agent-<uuid>`），界面只显示掩码；插件配置与日志里没有明文 Token。
 - 旧版本的单连接记录（`mota/connection`）会在首次加载时自动迁移成一个 Agent，随后删除旧记录。
 - 用量统计持久化在该 Agent 的凭据记录里，重启后保留；日志保存在内存（每个 Agent 最近 400 条），重启后清空。
-- 发往模型的业务输入会做凭据键清洗（`authorization`、`access_token`、`api_key`、`password`、`cookie` 等），`runtimeContext` 只保留协议允许的字段。
+- 发往模型的业务输入在执行器内做递归凭据键清洗（`authorization`、`access_token`、`refresh_token`、`client_secret`、`api_key`、`password`、`cookie`、`broker_credentials` 等；`templateInputData` 中名为凭据的整条移除），并防御性替换 Worker 自身 Token 的出现；`runtimeContext` 只保留协议白名单字段（`isFinal`、`accountId`、`brokerType`、`brokerAccountId`、`account`、`positions`、`todayOrders`、`observedAt`、`accountStateVersion`）。
+- `taskBrief.expectedOutputFormat`（字符串或对象）作为附加约束转发给模型，只能叠加、不能削弱岗位契约；`globalParameters.targetMarkets` 明确限定分析市场。
 - 任务内容会发送给本机 DSH 当前配置的模型提供方；这是执行任务的必要条件。
 - 队列请求不跟随重定向，错误信息与界面状态都不回显完整 URL 或 Token。
 - 执行任务的子 Agent 与本机 Harness 共享工具权限（当前 DSH API 无法安全地「禁用全部工具」）。插件在系统提示里明确禁止调用工具并把任务数据标记为不可信，但这只是提示词层的约束，**请只接入可信的 Creator 账号**。
@@ -120,6 +124,12 @@ dsh plugin --profile desktop add dsh-mota-executor
 - 仓库根目录的 `index.json` 是 format 1 插件市场索引，钉定固定 commit 的 git 源。
 - `node scripts/verify-index.mjs` 自检索引与包的一致性；`--remote` 额外校验索引钉定的 commit 与 npm 版本。
 - 已向 [`awesome-dsh-plugin`](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin) 提交 `data/plugins/mota-developer__dsh-mota-executor.yml`，收录后会在 dshmarket 的「插件市场」里出现，可直接一键安装。
+
+## 与官方 mota-bind Skill 的一致性
+
+- 六个岗位 schema 与 `pull-channel.json` 与官方 kit 2.2.0 **逐字节一致**；校验分层（信封形状 → usage 规则 → 通道 `completeRequest` → 岗位 `motaAgentPayloadV1`）与官方 `pull-output.mjs` 相同。
+- 传输语义对齐 `pull-protocol.md`：token 仅 query、`X-MoTA-Run-ID` 头、complete 无 workerId、204 立即再取、租约 1/3 续租、409 放弃、Retry-After 1–60 钳制、回传重试受次数与租约双重约束。
+- 未实现候选 Token 热轮换（仅在创作者明确要求轮换时才需要）；遇到 401 停止并等待人工更新。
 
 ## 已知限制
 
