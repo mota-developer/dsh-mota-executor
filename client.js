@@ -280,7 +280,6 @@ window.__ModuleLoader__.load({
 .mota-log-time{color:var(--m-text3)}
 .mota-log-agent{color:var(--m-text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .mota-log-msg{color:var(--m-text);white-space:pre-wrap;word-break:break-word}
-.mota-foot{margin-top:18px;font-size:11px;color:var(--m-text3)}
 .mota-root::-webkit-scrollbar,.mota-logs::-webkit-scrollbar{width:8px}
 .mota-root::-webkit-scrollbar-thumb,.mota-logs::-webkit-scrollbar-thumb{background:var(--m-fill2);border-radius:4px}
 .mota-root::-webkit-scrollbar-track,.mota-logs::-webkit-scrollbar-track{background:transparent}
@@ -581,7 +580,6 @@ window.__ModuleLoader__.load({
       const rootRef = useRef(null);
 
       const agents = data?.agents ?? [];
-      const pricing = data?.pricing;
       const selected = agents.find((agent) => agent.id === selectedId) ?? null;
 
       const refresh = useCallback(async () => {
@@ -845,9 +843,6 @@ window.__ModuleLoader__.load({
           error ? h('div', { className: 'mota-banner mota-banner-error' }, error) : null,
           note ? h('div', { className: 'mota-banner mota-banner-ok' }, note) : null,
           body,
-          pricing
-            ? h('p', { className: 'mota-foot' }, `${t('pricingHint')} ${pricing.currency} · in ${pricing.inputPerMTok}/M · out ${pricing.outputPerMTok}/M`)
-            : null,
         ),
       );
     }
